@@ -1,0 +1,36 @@
+{
+  "name": "dsh-team-model-policy",
+  "version": "0.1.0",
+  "description": "Pin named DeepSeek Harness teammates to a configured LLM route and report their effective models.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": "0.2.1-rc.3"
+  },
+  "scripts": {
+    "test": "node --test tests/policy.test.mjs",
+    "test:integration": "node tests/run-integration.mjs",
+    "check": "node --check index.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kogekiplay/dsh-team-model-policy.git"
+  },
+  "license": "MIT"
+}
