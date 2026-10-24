@@ -10,18 +10,22 @@ const installed = '/Applications/DeepSeek Harness.app/Contents';
 const cli = process.env.DSH_TEST_CLI ? JSON.parse(process.env.DSH_TEST_CLI) : existsSync(installed + '/Resources/app.asar')
   ? [installed + '/MacOS/DeepSeek Harness', installed + '/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'] : ['dsh'];
 const results = [];
-function runCase(label, { enabled = true, mode = 'normal', home, sessionId, model = 'deepseek-v4.1-flash' } = {}) {
+function runCase(label, { enabled = true, mode = 'normal', home, sessionId, model = 'deepseek-v4.1-flash', policyMode = 'fixed' } = {}) {
   home ??= join(runRoot, label + '-home');
   const output = join(runRoot, label + '.jsonl');
   const overlay = [
     { id: 'agent-default-model', config: { provider: 'route-audit', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' } },
     { id: 'session-title-llm', disabled: true },
     { id: 'hmr', disabled: true },
+    { id: 'subagent-model-selection-settings', config: { enabled: true, allowedModels: [
+      { provider: 'route-audit', model: 'gpt-6.1-sol' }, { provider: 'route-audit', model: 'deepseek-v4.1-flash' } ] } },
     { insert: [
+      { id: 'audit-model-selection-policy', name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings', config: { enabled: true, allowedModels: [
+        { provider: 'route-audit', model: 'gpt-6.1-sol' }, { provider: 'route-audit', model: 'deepseek-v4.1-flash' } ] } },
       { id: 'audit-team', name: '@deepseek-ai/dsh-experimental-agent-team' },
       { id: 'audit-team-tools', name: '@deepseek-ai/dsh-experimental-tool-agent-team' },
       { id: 'audit-adapter', name: join(project, 'tests/fixture.mjs'), config: { output, mode } },
-      ...(enabled ? [{ id: 'audit-policy', name: join(project, 'index.mjs'), config: { provider: 'route-audit', model } }] : []),
+      ...(enabled ? [{ id: 'audit-policy', name: join(project, 'index.mjs'), config: { mode: policyMode, provider: 'route-audit', model, defaultReasoningEffort: 'max' } }] : []),
     ] },
     { id: 'tool-subagent-control', disabled: true },
   ];
@@ -75,6 +79,18 @@ try {
   const resumed = runCase('cold-resume', { mode: 'resume', home: before.home, sessionId: rootId });
   assert.equal(resumed.requests.filter(r => r.role === 'teammate').length, 2);
   assert(resumed.requests.filter(r => r.role === 'teammate').every(r => r.model === 'deepseek-v4.1-flash'));
+  const followed = runCase('follow-default-max-and-switch', { mode: 'follow', policyMode: 'follow-subagent' });
+  const firstRequests = followed.requests.filter(r => r.name === 'first');
+  assert.equal(firstRequests[0]?.model, 'deepseek-v4.1-flash');
+  assert.equal(firstRequests[0]?.reasoningEffort, 'max');
+  assert.equal(firstRequests.at(-1)?.model, 'gpt-6.1-sol');
+  assert.equal(firstRequests.at(-1)?.reasoningEffort, 'high');
+  assert(followed.requests.filter(r => r.name === 'second').every(r => r.reasoningEffort === 'off'));
+  assert(followed.tools.filter(t => t.tool === 'create_teammate' || t.tool === 'set_teammate_model').every(t => !t.isError));
+  const nativeFollow = runCase('native-follow-default-max', { mode: 'native-follow', policyMode: 'follow-subagent' });
+  assert.equal(nativeFollow.requests.filter(r => r.role === 'teammate').length, 2);
+  assert(nativeFollow.requests.filter(r => r.role === 'lead').every(r => r.reasoningEffort === 'off'));
+  assert(nativeFollow.requests.filter(r => r.role === 'teammate').every(r => r.reasoningEffort === 'max'));
   const invalid = runCase('invalid-route', { mode: 'invalid-route', model: 'missing-audit-model' });
   assert.equal(invalid.requests.filter(r => r.role === 'teammate').length, 0);
   assert.equal(invalid.tools.find(t => t.tool === 'spawn_teammate').isError, true);

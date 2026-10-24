@@ -23,7 +23,7 @@ export function apply(ctx, config) {
   const resolveModel = async (provider, model) => {
     if (!['gpt-6.1-sol', 'deepseek-v4.1-flash'].includes(model)) throw new Error('Unknown audit model: ' + model);
     const effort = model === 'gpt-6.1-sol' ? 'max' : 'off';
-    return { provider, id: model, name: model, reasoning: { efforts: [{ id: effort, name: effort }], defaultEffort: effort } };
+    return { provider, id: model, name: model, reasoning: { efforts: ['max', 'high', 'off'].map(id => ({ id, name: id })), defaultEffort: effort } };
   };
   const adapter = {
     providerInfo: id => ({ id, name: id }),
@@ -42,7 +42,13 @@ export function apply(ctx, config) {
       if (membership.role === 'teammate') chunks = text('AUDIT_CHILD_DONE');
       else {
         const i = step++;
-        if (config.mode === 'resume') {
+        if (config.mode === 'follow') {
+          chunks = i === 0 ? call(i, 'create_teammate', { name: 'first', description: 'default max fixture', prompt: 'AUDIT_CHILD_FIRST', provider: 'route-audit', model: 'deepseek-v4.1-flash' })
+            : i === 1 ? call(i, 'create_teammate', { name: 'second', description: 'explicit off fixture', prompt: 'AUDIT_CHILD_SECOND', context: 'fork', provider: 'route-audit', model: 'deepseek-v4.1-flash', reasoning_effort: 'off' })
+            : i === 2 ? call(i, 'set_teammate_model', { target: 'first', provider: 'route-audit', model: 'gpt-6.1-sol', reasoning_effort: 'high' })
+            : i === 3 ? call(i, 'send_message', { target: 'first', message: 'AUDIT_CHILD_CHANGED' })
+            : i === 4 ? call(i, 'list_agents', {}) : text('AUDIT_FINISHED');
+        } else if (config.mode === 'resume') {
           chunks = i === 0 ? call(i, 'send_message', { target: 'first', message: 'AUDIT_CHILD_RESUME_FIRST' })
             : i === 1 ? call(i, 'send_message', { target: 'second', message: 'AUDIT_CHILD_RESUME_SECOND' })
             : i === 2 ? call(i, 'list_agents', {}) : text('AUDIT_FINISHED');
@@ -63,10 +69,10 @@ export function apply(ctx, config) {
   ctx.on('agent/request', async ({ agent }, next) => {
     const proposal = await next();
     if (ctx.agentTeams.tryMembership(agent)?.role !== 'lead') return proposal;
-    return { ...proposal, provider: 'route-audit', model: 'gpt-6.1-sol', reasoningEffort: 'max' };
+    return { ...proposal, provider: 'route-audit', model: 'gpt-6.1-sol', reasoningEffort: config.mode === 'native-follow' ? 'off' : 'max' };
   });
   ctx.on('tools/result', (exec, result) => {
-    if (['list_agents', 'spawn_teammate', 'send_message'].includes(exec.name)) {
+    if (['list_agents', 'spawn_teammate', 'send_message', 'create_teammate', 'set_teammate_model'].includes(exec.name)) {
       record({ kind: 'tool', tool: exec.name, isError: result.isError,
         ...(result.isError ? { error: result.error } : { value: result.value }) });
     }

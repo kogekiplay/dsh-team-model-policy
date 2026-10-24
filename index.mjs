@@ -1,4 +1,6 @@
-/** Fixed LLM route for named teammates on the request-waterfall DSH runtime. */
+/** Team-specific model policy and effective-model reporting. */
+import { readSettings } from './settings.mjs';
+export { Config } from './settings.mjs';
 export const name = 'team-model-policy';
 export const inject = ['agents', 'agentTeams', 'llm', 'tools', 'systemPrompt', 'sessionPersistence'];
 
@@ -38,8 +40,26 @@ export function parseRoute(config) {
 
 /** Register reversible request and result policies; no Agent is created or woken. */
 export function apply(ctx, config) {
-  const route = parseRoute(config);
-  const label = route.provider + '/' + route.model;
+  const settings = () => readSettings(config);
+  let choiceStore;
+  let choiceModule;
+  const choices = async () => {
+    choiceModule ??= import('./choices.mjs');
+    choiceStore ??= choiceModule.then(module => module.createChoices({ storageDomain: ctx.get('storageDomain'), profileContext: ctx.get('profileContext') }));
+    return await choiceStore;
+  };
+  const configuredRoute = async (caller, member) => {
+    const state = settings();
+    if (state.mode === 'fixed') return parseRoute({ provider: state.provider, model: state.model,
+      ...(state.reasoningEffort ? { reasoningEffort: state.reasoningEffort } : {}) });
+    const membership = ctx.agentTeams.membership(caller);
+    const stored = await (await choices()).load(membership.root.id, member.name);
+    if (stored === undefined) return undefined;
+    const module = await choiceModule;
+    return await module.authorize(membership.root.session, { ...stored,
+      reasoningEffort: stored.reasoningEffort ?? state.defaultReasoningEffort });
+  };
+  ctx.inject(['settings'], child => child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)));
   const shutdown = new AbortController();
   const pending = new Set();
   let closed = false;
@@ -61,7 +81,7 @@ export function apply(ctx, config) {
     operation.then(() => pending.delete(operation), () => pending.delete(operation));
     return operation;
   };
-  const preflight = async signal => {
+  const preflight = async (route, signal) => {
     const resolved = await ctx.llm.resolveCallConfig(route, signal);
     signal.throwIfAborted();
     if (resolved.provider !== route.provider || resolved.model !== route.model) {
@@ -93,24 +113,44 @@ export function apply(ctx, config) {
       }
     }
     const { model: _oldModel, ...rest } = row;
-    const selection = actual ?? (member.role === 'teammate' ? route : live?.options);
+    const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member) : live?.options;
+    const selection = actual ?? planned;
+    const label = planned === undefined ? '' : planned.provider + '/' + planned.model;
     return {
       ...rest,
       ...(selection?.model === undefined ? {} : { model: selection.model }),
       diagnostics: actual === undefined
         ? [...row.diagnostics, 'No member request is recorded; model is the next configured selection.']
-        : member.role === 'teammate' && (actual.provider !== route.provider || actual.model !== route.model)
+        : member.role === 'teammate' && planned !== undefined && (actual.provider !== planned.provider || actual.model !== planned.model)
           ? [...row.diagnostics, 'Next request is pinned to ' + label + '; model reports the latest recorded request.']
           : row.diagnostics,
     };
   };
 
+  ctx.inject(['profileContext', 'storageDomain'], child => child.effect(async () => {
+    const { registerModelTools } = await import('./model-tools.mjs');
+    return await registerModelTools(child, { settings, choices, track });
+  }));
+
   ctx.effect(function* () {
-    yield ctx.on('agent/created', ({ agent, signal }) => {
-      if (!teammate(agent)) return;
+    yield ctx.on('agent/created', async ({ agent, signal }) => {
+      if (!teammate(agent)) {
+        if (settings().mode === 'follow-subagent' && ctx.agentTeams.tryMembership(agent)?.role === 'lead'
+          && agent.session.firstLiveSeq === 0 && agent.session.eventAt(0)?.type !== 'session/end-seed') {
+          const { allowedRoutes } = await import('./choices.mjs');
+          if (allowedRoutes(agent.session) === undefined) {
+            const owner = ctx.get('subagentModelSelection');
+            const preference = typeof owner?.current === 'function' ? owner.current() : undefined;
+            if (preference?.enabled) agent.session.append('subagent/model-selection-policy', { allowedModels: preference.allowedModels });
+          }
+        }
+        return;
+      }
       checkRuntime(agent);
       return track(signal, async linked => {
-        await preflight(linked);
+        const membership = ctx.agentTeams.membership(agent);
+        const route = await configuredRoute(agent, membership);
+        if (route !== undefined) await preflight(route, linked);
       });
     });
     yield ctx.on('agent/request', ({ agent, signal }, next) => {
@@ -119,7 +159,15 @@ export function apply(ctx, config) {
       return track(signal, async linked => {
         const original = await next();
         linked.throwIfAborted();
-        const resolved = await preflight(linked);
+        const membership = ctx.agentTeams.membership(agent);
+        const route = await configuredRoute(agent, membership);
+        if (route === undefined) {
+          if (lastRequest(agent.session.snapshotEvents(agent.session.inheritedEventCount)) === undefined) {
+            return await preflight({ ...original, reasoningEffort: settings().defaultReasoningEffort }, linked);
+          }
+          return original;
+        }
+        const resolved = await preflight(route, linked);
         const { reasoningEffort: _oldEffort, ...controls } = original;
         return {
           ...controls,
@@ -137,6 +185,7 @@ export function apply(ctx, config) {
         linked.throwIfAborted();
         if (decision.kind !== 'accept' || decision.content !== undefined) return decision;
         const members = ctx.agentTeams.listMembers(exec.agent);
+        members.caller = exec.agent;
         const value = decision.value === undefined ? result.value : decision.value;
         if (exec.name === 'list_agents') {
           if (!Array.isArray(value)) throw new TeamModelPolicyError('Unexpected list_agents output.', 'UNSUPPORTED_OUTPUT');
@@ -154,12 +203,15 @@ export function apply(ctx, config) {
     yield ctx.systemPrompt.section({
       name: 'team:model-policy',
       order: ctx.systemPrompt.getSectionOrder('TEAM_POLICY'),
-      text: 'Named teammates use ' + label + '. The Lead keeps its own model selection. Existing teammates use this route from their next request.',
+      text: () => settings().mode === 'fixed'
+        ? 'Named teammates use the fixed Team model settings. Model and effort changes apply to their next request. The Lead keeps its own model selection.'
+        : 'Use create_teammate to choose an authorized model and reasoning effort when creating a named teammate. Use set_teammate_model to change an existing teammate for its next request. Allowed routes follow the Session subagent model-selection policy.',
     });
     yield ctx.effect(() => async () => {
       closed = true;
       shutdown.abort(new TeamModelPolicyError('The team model policy is unloading.', 'POLICY_UNLOADING'));
       await Promise.allSettled([...pending]);
+      if (choiceStore !== undefined) await (await choiceStore).close();
     });
   });
 }

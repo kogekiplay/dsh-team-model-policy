@@ -1,4 +1,6 @@
 - insert:
     - id: team-model-policy
       name: dsh-team-model-policy
-      disabled: true
+      config:
+        mode: follow-subagent
+        defaultReasoningEffort: max

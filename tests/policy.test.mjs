@@ -20,6 +20,7 @@ function harness(resolveCallConfig = async choice => choice) {
   members.push({ id: root.id, name: 'lead', role: 'lead', status: 'running' }, { id: child.id, name: 'worker', role: 'teammate', status: 'inactive' });
   ctx.provide('agents', { get: id => agents.get(id) });
   ctx.provide('agentTeams', { tryMembership: a => a === child ? { role: 'teammate' } : a === root ? { role: 'lead' } : undefined,
+    membership: a => ({ root, name: a === child ? 'worker' : 'lead', role: a === child ? 'teammate' : 'lead' }),
     listMembers: () => members });
   ctx.provide('llm', { resolveCallConfig });
   ctx.provide('tools', {});

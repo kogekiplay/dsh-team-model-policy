@@ -1,75 +1,74 @@
 # DSH team model policy
 
-A third-party Host plugin for DeepSeek Harness that assigns named teammates an independent LLM route and corrects model fields returned by `list_agents` and `spawn_teammate`.
-
-This plugin targets the **request-waterfall runtime shipped in the tested 0.2.1-rc.3 desktop application**. Newer development builds with `Agent.model` require a different integration and are refused when creating or requesting a teammate.
+Independent DeepSeek Harness plugin with a **Team models / 团队模型** configuration page.
 
 ## Install
 
-Install the public GitHub package from DSH's Plugins page, or through the CLI:
+Install this public URL in DSH's Plugins page:
 
-```sh
-dsh plugin --profile web add 'https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.1.0.tar.gz'
+```text
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.2.0.tar.gz
 ```
 
-Use your actual profile name. Desktop profiles belong to the desktop application; its Plugins page is the usual entry point. The package contains executable ESM and needs no build scripts, install scripts, registry dependencies, or credentials.
+The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
 
-The bundle is selected by installation, but its policy entry starts disabled. Configure the route before enabling it. Add a profile override:
+## Configure
+
+Open **Plugins → Team models / 插件 → 团队模型**. Select and save one mode:
+
+- **Follow subagent model settings / 跟随子智能体模型设置**: the Lead chooses an authorized model for each teammate. The Session's original subagent allowlist remains authoritative. Unspecified reasoning effort defaults to **max**. Unsupported effort fails visibly, without falling back to disabled thinking.
+- **Fixed model / 固定模型**: all named teammates use the selected provider, model and effort. An empty fixed effort follows that model's own default. Per-member switches are refused while this mode is active.
+
+Changing the model or reasoning effort affects the next model request. A request already sent continues unchanged. Explicit `off` remains off. The Lead's route is unchanged.
+
+## Lead tools
+
+- `create_teammate`: supplies the native Team creation fields plus `provider`, `model` and optional `reasoning_effort`. It validates authorization and adapter support before saving the choice and calling the native Team service. Omitted effort uses the configured follow default, initially max.
+- `set_teammate_model`: changes an existing teammate's next model and effort. It neither wakes the teammate nor interrupts its current request.
+
+The original `spawn_teammate` remains available. In follow mode, omitting a per-member choice retains native inheritance. Use `create_teammate` when selecting a different model. Both fresh and fork creation remain owned by DSH's Team and continuation services.
+
+Member choices persist in a plugin-owned storage domain keyed by the exact Team root and teammate name. They survive cold recovery. The plugin does not rewrite Team events or creation descriptors. Actual requests remain recorded in `request/header`.
+
+The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
+
+## Host configuration
+
+The optional profile override uses these fields; the GUI writes the same namespace:
 
 ```yaml
 - id: team-model-policy
-  disabled: false
   config:
-    provider: my-provider
-    model: deepseek-v4.1-flash
-    # reasoningEffort: off
+    mode: follow-subagent
+    defaultReasoningEffort: max
+    provider: ''
+    model: ''
+    reasoningEffort: ''
 ```
 
-The provider id must already be registered in DSH. That provider interprets the model id and optional effort. Omitting effort uses the chosen adapter's default and clears an inherited effort from the parent's model.
+The mode and route fields are volatile settings. Fixed-route validation happens when that route is used, allowing an unconfigured installation to open its settings page. Model selection follows the Session-start authorization snapshot; changing the ordinary Subagent allowlist affects new Sessions.
 
-## Behavior
+## Compatibility
 
-- The Lead keeps its own route. Named Team members use the configured route on their next request; ordinary non-Team subagents retain their behavior.
-- Fresh and fork teammates stay managed by DSH's original Team and continuation services. Existing cold teammates use the policy when resumed; the plugin creates and wakes no Agent.
-- New teammate routes are validated before queued work is released. Invalid routes fail creation through the original Team error path. Resumed requests validate again and fail visibly if their route becomes unavailable.
-- Model fields report the member's latest own recorded request, excluding inherited fork history. Before a request exists, the field reports the configured next selection with an explicit diagnostic. A diagnostic also distinguishes a historical request from a different pinned next route.
-- Cold rows read the member's persisted session through an owned read handle. The Lead model is never substituted for an unloaded teammate.
-- This is a host policy. It does not add per-call model parameters to `spawn_teammate` or treat the ordinary subagent allowlist as a forced default.
+Tested with the request-waterfall runtime in Desktop 0.2.1-rc.3. Newer development runtimes exposing `Agent.model` are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
 
-DSH's creation descriptor records the route inherited before this request policy runs. The subsequent `request/header` records the route actually used. The plugin preserves both facts without rewriting history.
-
-## Disable or remove
-
-Disable the `team-model-policy` entry on the Plugins page or set its `disabled` override to `true`. Profile HMR applies the change when enabled; otherwise restart the profile. Use DSH's ordinary package removal operation to uninstall.
-
-Unload stops admission, aborts and awaits in-flight policy operations, closes read handles, and removes listeners and prompt contributions. It preserves recorded requests. DSH may continue an existing session's last route after disablement; use the model picker to select another route for that session. A new teammate follows DSH's original inheritance behavior.
+Disabling the component removes listeners, prompt contributions and tools after owned operations settle. It preserves recorded requests and choices. Existing Sessions can retain their last recorded route after disablement; use a model picker or choose a new route explicitly.
 
 ## Verify
 
-The runtime entry is `index.mjs`; no compilation is required.
-
 ```sh
-node --check index.mjs
-node --test tests/policy.test.mjs
+node src/client/build.cjs --check
+node --test tests/client.test.mjs
+ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/policy.test.mjs tests/choices.test.mjs
 node tests/run-integration.mjs
 ```
 
-Unit tests need `@deepseek-ai/cordis` from a matching DSH installation. Set `DSH_TEST_INSTALL_ANCHOR` to that installation's package manifest if discovery fails. On packaged macOS Desktop, run tests with Electron in Node mode so its ASAR package paths remain readable:
+The integration suite uses `dsh --profile headless`, its real Loader, tools, Team lifecycle and persistence. Only the external LLM adapter is scripted. It checks native baseline behavior, fixed routes, cold recovery, follow-mode default max, explicit off, a mid-session model/effort switch, and route failures. It independently decodes persisted request headers with `zstd`. Every attempt is retained under `.evidence/` and excluded from Git.
 
-```sh
-ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/policy.test.mjs
-```
-
-The integration test launches the installed `dsh --profile headless` with the real Loader, Team tools, continuation manager, tool pipeline and persistence. Only the LLM adapter is scripted. Every attempt has a private isolated Harness home and remains under `.evidence/`. The test independently decodes persisted request headers with the `zstd` CLI. `DSH_TEST_CLI` can supply a JSON argv array for another matching launcher; `DSH_TEST_ZSTD` can select the decoder executable.
-
-Four integration scenarios reproduce the original behavior, verify fresh/fork routes, resume existing children across processes, and reject an invalid model through the real creation tool. Nine focused unit tests cover errors, downstream blocks, fork history, HMR removal, in-flight unload and cancelled read handles. These tests establish routing and lifecycle behavior; they do not call a live Flash service or evaluate its answers.
+`DSH_TEST_CLI` can supply a JSON launcher argv array; `DSH_TEST_INSTALL_ANCHOR` selects another matching installation; `DSH_TEST_ZSTD` selects the log decoder. The client tests render the real React card, exercise revision-fenced saves, and load the distributed factory against platform-module imports.
 
 ## Model experience
 
-The plugin adds no tools or parameters. One short system section states the Team route, adding prompt tokens and changing cached prompt text while enabled. Corrected values pass through DSH's declared output schema and renderer, keeping PTC values and rendered model text aligned.
+Two tools and one short policy section are added. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
 
-## Scope
-
-The plugin changes Host request policy and two model-facing tool results. It does not replace the browser model picker or Team UI. It has no network endpoints, API keys, telemetry, dependencies, or background timers of its own; requests use DSH's configured provider.
-
-MIT licensed. This is an independent community plugin, not an official DeepSeek package.
+MIT licensed.
