@@ -7,14 +7,14 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.2.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.2.1.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
 
 ## Configure
 
-Open **Plugins → Team models / 插件 → 团队模型**. Select and save one mode:
+Open **Plugins → dsh-team-model-policy / 插件 → dsh-team-model-policy**. The configuration appears directly on the installed plugin detail page. Select and save one mode:
 
 - **Follow subagent model settings / 跟随子智能体模型设置**: the Lead chooses an authorized model for each teammate. The Session's original subagent allowlist remains authoritative. Unspecified reasoning effort defaults to **max**. Unsupported effort fails visibly, without falling back to disabled thinking.
 - **Fixed model / 固定模型**: all named teammates use the selected provider, model and effort. An empty fixed effort follows that model's own default. Per-member switches are refused while this mode is active.
