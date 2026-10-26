@@ -46,9 +46,10 @@ function createTeamModelPolicyView(SettingsForm) {
           props.edit('reasoningEffort', '')
         }
       } }))
-    return h('section', { className: 'dtmp', 'data-team-model-policy': state.mode,
+    return h('section', { className: 'dtmp dtmp-settings', 'data-team-model-policy': state.mode,
       'data-save-state': state.saving ? 'saving' : state.dirty ? 'dirty' : 'saved', 'aria-busy': state.saving },
       h('style', null, css),
+      h('header', { className: 'dtmp-page-header' }, h('h2', null, t('navTitle')), h('p', null, t('summary'))),
       h(SettingsForm, { state: { ...state, invalid: state.invalid || !state.writable },
         labels: { unavailable: t('unavailable'), readOnly: t('readOnly'), saveFailed: t('saveFailed'), save: t('save'), saving: t('saving') },
         onSave: props.save, onDiscard: props.discard },

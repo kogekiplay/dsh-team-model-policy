@@ -17,8 +17,8 @@ function apply(ctx) {
   ctx.effect(() => ctx.remote.$on('settings/document-updated', () => { void current.refreshCatalog() }))
   ctx.effect(() => ctx.on('connection/reset', () => { void current.refreshCatalog() }))
   ctx.effect(() => () => { current.dispose() })
-  ctx.effect(() => ctx.configForms.whileServed([NAMESPACE], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-    name: 'plugins.bundle.config', key: 'dsh-team-model-policy', locale: NS,
+  ctx.effect(() => ctx.configForms.whileServed([NAMESPACE], () => ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'team-model-policy', order: 60, label: () => t('navTitle'), locale: NS,
     inject: () => ({ hooks: { teamModelPolicyCard: current }, edit: (field, text) => current.edit(field, text),
       setMode: mode => current.setMode(mode), resetField: field => current.resetField(field),
       save: () => { void current.save() }, discard: () => current.discard(), retryCatalog: () => { void current.refreshCatalog() } }),

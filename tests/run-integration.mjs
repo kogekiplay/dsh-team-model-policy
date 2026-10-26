@@ -32,7 +32,12 @@ function runCase(label, { enabled = true, mode = 'normal', home, sessionId, mode
   const patch = join(runRoot, label + '.patch.json'); writeFileSync(patch, JSON.stringify(overlay, null, 2) + '\n');
   const env = { ...process.env, DSH_HOME: home, ELECTRON_RUN_AS_NODE: '1' };
   for (const key of Object.keys(env)) if (/KEY|SECRET|TOKEN|PASSWORD/i.test(key)) delete env[key];
-  const args = [...cli.slice(1), '--profile', 'headless', '--patch', patch,
+  // A real profile layer is writable, unlike a command-line overlay.
+  const initialize = spawnSync(cli[0], [...cli.slice(1), '--profile', 'headless', '--dump-config'], { cwd: project, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+  writeFileSync(join(runRoot, label + '.init.stderr.log'), initialize.stderr ?? '');
+  assert.equal(initialize.status, 0, 'Could not initialize isolated profile');
+  writeFileSync(join(home, 'profiles', 'headless', 'cordis.patch.yml'), JSON.stringify(overlay, null, 2) + '\n');
+  const args = [...cli.slice(1), '--profile', 'headless',
     ...(sessionId ? ['--session-id', sessionId] : []), 'AUDIT_ROOT'];
   const child = spawnSync(cli[0], args, { cwd: project, env, encoding: 'utf8', timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
   writeFileSync(join(runRoot, label + '.stdout.log'), child.stdout ?? '');
@@ -96,6 +101,25 @@ try {
   assert.equal(nativeFollow.requests.filter(r => r.role === 'teammate').length, 2);
   assert(nativeFollow.requests.filter(r => r.role === 'lead').every(r => r.reasoningEffort === 'off'));
   assert(nativeFollow.requests.filter(r => r.role === 'teammate').every(r => r.reasoningEffort === 'max'));
+  const dynamic = runCase('dynamic-authority-existing-session', { mode: 'dynamic', policyMode: 'follow-subagent' });
+  const catalogs = dynamic.tools.filter(t => t.tool === 'list_teammate_models');
+  assert(catalogs.every(t => !t.isError));
+  assert(!catalogs[0].value.providers.some(p => p.id === 'other-audit'));
+  assert(catalogs[1].value.providers.some(p => p.id === 'other-audit'));
+  assert.equal(catalogs[2].value.model, 'glm-5.3');
+  assert(catalogs[2].value.reasoningEfforts.some(e => e.id === 'high'));
+  assert(!catalogs[3].value.providers.some(p => p.id === 'other-audit'));
+  assert.equal(catalogs[4].value.enabled, false);
+  assert.deepEqual(catalogs[4].value.providers, []);
+  const switches = dynamic.tools.filter(t => t.tool === 'set_teammate_model');
+  assert.deepEqual(switches.map(t => t.isError), [false, true, false, true]);
+  const first = dynamic.requests.filter(r => r.name === 'first');
+  assert.equal(first.filter(r => r.provider === 'other-audit').length, 1);
+  assert.equal(first.find(r => r.provider === 'other-audit').reasoningEffort, 'high');
+  assert.equal(first.at(-1).model, 'gpt-6.1-sol');
+  assert.equal(first.at(-1).reasoningEffort, 'off');
+  assert(dynamic.requests.some(r => r.name === 'second' && r.provider === 'other-audit' && r.reasoningEffort === 'max'));
+  assert(dynamic.events.filter(e => e.kind === 'saved-policy').every(e => e.sessionPolicies.flat().every(p => p.provider !== 'other-audit')));
   const invalid = runCase('invalid-route', { mode: 'invalid-route', model: 'missing-audit-model' });
   assert.equal(invalid.requests.filter(r => r.role === 'teammate').length, 0);
   assert.equal(invalid.tools.find(t => t.tool === 'spawn_teammate').isError, true);

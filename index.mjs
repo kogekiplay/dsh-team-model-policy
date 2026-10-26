@@ -1,5 +1,6 @@
 /** Team-specific model policy and effective-model reporting. */
 import { readSettings } from './settings.mjs';
+import { authorizeCurrent, currentAuthorization } from './authorization.mjs';
 export { Config } from './settings.mjs';
 export const name = 'team-model-policy';
 export const inject = ['agents', 'agentTeams', 'llm', 'tools', 'systemPrompt', 'sessionPersistence'];
@@ -48,16 +49,15 @@ export function apply(ctx, config) {
     choiceStore ??= choiceModule.then(module => module.createChoices({ storageDomain: ctx.get('storageDomain'), profileContext: ctx.get('profileContext') }));
     return await choiceStore;
   };
-  const configuredRoute = async (caller, member) => {
+  const configuredRoute = async (caller, member, validate = true) => {
     const state = settings();
     if (state.mode === 'fixed') return parseRoute({ provider: state.provider, model: state.model,
       ...(state.reasoningEffort ? { reasoningEffort: state.reasoningEffort } : {}) });
     const membership = ctx.agentTeams.membership(caller);
     const stored = await (await choices()).load(membership.root.id, member.name);
     if (stored === undefined) return undefined;
-    const module = await choiceModule;
-    return await module.authorize(membership.root.session, { ...stored,
-      reasoningEffort: stored.reasoningEffort ?? state.defaultReasoningEffort });
+    const route = { ...stored, reasoningEffort: stored.reasoningEffort ?? state.defaultReasoningEffort };
+    return validate ? authorizeCurrent(ctx, route) : route;
   };
   ctx.inject(['settings'], child => child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)));
   const shutdown = new AbortController();
@@ -82,8 +82,11 @@ export function apply(ctx, config) {
     return operation;
   };
   const preflight = async (route, signal) => {
+    const follow = settings().mode === 'follow-subagent';
+    if (follow) authorizeCurrent(ctx, route);
     const resolved = await ctx.llm.resolveCallConfig(route, signal);
     signal.throwIfAborted();
+    if (follow) authorizeCurrent(ctx, route);
     if (resolved.provider !== route.provider || resolved.model !== route.model) {
       throw new TeamModelPolicyError('The LLM adapter resolved a different teammate route.', 'ROUTE_MISMATCH');
     }
@@ -113,13 +116,17 @@ export function apply(ctx, config) {
       }
     }
     const { model: _oldModel, ...rest } = row;
-    const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member) : live?.options;
+    const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member, false) : live?.options;
     const selection = actual ?? planned;
     const label = planned === undefined ? '' : planned.provider + '/' + planned.model;
+    const policy = settings().mode === 'follow-subagent' ? currentAuthorization(ctx) : undefined;
+    const candidate = planned ?? actual;
+    const blocked = member.role === 'teammate' && policy !== undefined && candidate !== undefined
+      && (!policy.enabled || !policy.routes.some(route => route.provider === candidate.provider && route.model === candidate.model));
     return {
       ...rest,
       ...(selection?.model === undefined ? {} : { model: selection.model }),
-      diagnostics: actual === undefined
+      diagnostics: blocked ? [...row.diagnostics, 'This route is no longer authorized. Refresh list_teammate_models and choose an allowed route before the next request.'] : actual === undefined
         ? [...row.diagnostics, 'No member request is recorded; model is the next configured selection.']
         : member.role === 'teammate' && planned !== undefined && (actual.provider !== planned.provider || actual.model !== planned.model)
           ? [...row.diagnostics, 'Next request is pinned to ' + label + '; model reports the latest recorded request.']
@@ -165,6 +172,7 @@ export function apply(ctx, config) {
           if (lastRequest(agent.session.snapshotEvents(agent.session.inheritedEventCount)) === undefined) {
             return await preflight({ ...original, reasoningEffort: settings().defaultReasoningEffort }, linked);
           }
+          authorizeCurrent(ctx, original);
           return original;
         }
         const resolved = await preflight(route, linked);
@@ -205,7 +213,7 @@ export function apply(ctx, config) {
       order: ctx.systemPrompt.getSectionOrder('TEAM_POLICY'),
       text: () => settings().mode === 'fixed'
         ? 'Named teammates use the fixed Team model settings. Model and effort changes apply to their next request. The Lead keeps its own model selection.'
-        : 'Use create_teammate to choose an authorized model and reasoning effort when creating a named teammate. Use set_teammate_model to change an existing teammate for its next request. Allowed routes follow the Session subagent model-selection policy.',
+        : 'Use create_teammate to choose an authorized model and reasoning effort when creating a named teammate. Use set_teammate_model to change an existing teammate for its next request. Run list_teammate_models to refresh the latest user-authorized providers, models and reasoning efforts. Changes saved in Subagent settings apply to this existing Team immediately; removed routes are refused for future requests. Native ordinary-subagent tools keep their own Session policy.',
     });
     yield ctx.effect(() => async () => {
       closed = true;

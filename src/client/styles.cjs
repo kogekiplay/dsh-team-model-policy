@@ -1,6 +1,10 @@
 /** Scoped styles using the current DSH theme tokens. */
 module.exports = `.dtmp { margin: 28px 0 8px; padding-top: 24px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-primary); }
 .dtmp * { box-sizing: border-box; }
+.dtmp-settings { border: 0; margin: 0; padding: 0; }
+.dtmp-page-header { margin-bottom: 28px; }
+.dtmp-page-header h2 { margin: 0 0 8px; font-size: 18px; line-height: 1.5; font-weight: 500; }
+.dtmp-page-header p { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
 .dtmp-body { display: grid; gap: 20px; }
 .dtmp-heading { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.5; }
 .dtmp-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

@@ -93,7 +93,7 @@ function detach(record) {
 }
 
 /** Reject a malformed route at its JSON boundary before any state changes. */
-function normalizedRoute(route) {
+export function normalizedRoute(route) {
   if (route === null || typeof route !== 'object' || Array.isArray(route)) {
     throw new ChoicesError('A teammate route must be an object with provider and model.', ChoicesErrorCode.INVALID_ROUTE)
   }

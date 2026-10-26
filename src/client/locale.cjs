@@ -1,5 +1,5 @@
 /**
- * Typed dictionary for the Team model policy card.
+ * Typed dictionary for the Team models card.
  *
  * The Host's locale service requires both baseline languages when a namespace
  * registers, so every non-dictionary export below is checked against the
@@ -57,7 +57,7 @@ const en = {
   modeLabel: 'Model policy',
   modeFollow: 'Follow subagent model settings',
   modeFixed: 'Fixed model',
-  modeFollowHint: 'The Lead chooses a model for each teammate from the authorized subagent models.',
+  modeFollowHint: 'Use the latest models authorized in Subagent settings, including for existing Sessions.',
   modeFixedHint: 'Use one model and reasoning effort for all teammates.',
   defaultEffortLabel: 'Default reasoning effort',
   defaultEffortHint: 'Used when the Lead leaves effort unspecified. Unsupported effort reports an error.',
@@ -98,7 +98,7 @@ const zh = {
   modeLabel: '模型策略',
   modeFollow: '跟随子智能体模型设置',
   modeFixed: '固定模型',
-  modeFollowHint: '由 Lead 从已授权的子智能体模型中，为每名队友单独选择。',
+  modeFollowHint: '使用子智能体设置中最新勾选的模型，已有会话也会立即生效。',
   modeFixedHint: '所有队友统一使用下方模型和推理强度。',
   defaultEffortLabel: '默认推理强度',
   defaultEffortHint: 'Lead 未指定时使用此强度；模型不支持时明确报错。',

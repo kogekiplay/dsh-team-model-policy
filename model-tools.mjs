@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { authorizeCurrent, listCurrentModels } from './authorization.mjs';
 
 /** Register model-aware creation and next-request switching through the native Team service. */
 export async function registerModelTools(ctx, { settings, choices, track }) {
@@ -14,25 +15,35 @@ export async function registerModelTools(ctx, { settings, choices, track }) {
   };
   const routeFor = async (agent, args, signal) => {
     if (settings().mode !== 'follow-subagent') throw failure('The Team model is fixed. Enable follow mode to choose per teammate.', 'TEAM_MODEL_FIXED');
-    const { authorize } = await import('./choices.mjs');
-    const route = await authorize(agent.session, { provider: args.provider, model: args.model,
+    const route = authorizeCurrent(ctx, { provider: args.provider, model: args.model,
       reasoningEffort: args.reasoning_effort ?? settings().defaultReasoningEffort });
     signal.throwIfAborted();
     const resolved = await ctx.llm.resolveCallConfig(route, signal);
     signal.throwIfAborted();
+    authorizeCurrent(ctx, route);
     if (resolved.provider !== route.provider || resolved.model !== route.model) throw failure('The requested route resolved to another model.', 'ROUTE_MISMATCH');
     return route;
   };
   const key = (id, name) => JSON.stringify([id, name]);
   const nameField = { type: 'string', required: true, description: 'Unique lower-kebab-case teammate name, at most 64 characters.' };
   const fields = {
-    provider: { type: 'string', required: true, description: 'Authorized LLM provider id. Inspect list_subagent_models for allowed routes.' },
+    provider: { type: 'string', required: true, description: 'Authorized LLM provider id. Inspect list_teammate_models for the latest allowed routes.' },
     model: { type: 'string', required: true, description: 'Exact authorized model id under provider.' },
     reasoning_effort: { type: 'string', description: 'Effort supported by that model; omission uses the Team default, initially max. Explicit off keeps thinking disabled.' },
   };
   const output = { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] };
   const disposers = [];
   try {
+    disposers.push(ctx.tools.register(defineTool({
+      name: 'list_teammate_models',
+      description: 'Refresh the latest models authorized for teammates in Subagent settings. Newly saved providers and models are available to this existing Team immediately.',
+      parameters: { provider: { type: 'string', description: 'Provider id; omit to list currently authorized providers and routes.' },
+        model: { type: 'string', description: 'Exact model id; requires provider. Returns its supported reasoning efforts.' } },
+      output,
+      execute(args, exec) {
+        return track(exec.signal, async signal => { lead(exec.agent); return await listCurrentModels(ctx, args, signal); });
+      },
+    })));
     disposers.push(ctx.tools.register(defineTool({
       name: 'create_teammate',
       description: 'Create one named teammate with an authorized model and reasoning effort. Only the Team Lead may call this tool.',

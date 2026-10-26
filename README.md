@@ -7,28 +7,31 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.2.3.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.3.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
 
 ## Configure
 
-Open **Plugins → dsh-team-model-policy / 插件 → dsh-team-model-policy**. The configuration appears directly on the installed plugin detail page. Select and save one mode:
+Open **Settings → Team models / 设置 → 团队模型** in the left navigation. Select and save one mode:
 
-- **Follow subagent model settings / 跟随子智能体模型设置**: the Lead chooses an authorized model for each teammate. The Session's original subagent allowlist remains authoritative. Unspecified reasoning effort defaults to **max**. Unsupported effort fails visibly, without falling back to disabled thinking.
+- **Follow subagent model settings / 跟随子智能体模型设置**: the Lead chooses an authorized model for each teammate. The latest saved Subagent allowlist is authoritative, including for an existing Team. Unspecified reasoning effort defaults to **max**. Unsupported effort fails visibly, without falling back to disabled thinking.
 - **Fixed model / 固定模型**: all named teammates use the selected provider, model and effort. An empty fixed effort follows that model's own default. Per-member switches are refused while this mode is active.
 
 The follow-mode default reasoning effort is editable on this page: max (initial default), high, medium, low, or off. Save the choice to apply it when the Lead leaves effort unspecified. The two modes appear as selection cards. The page uses DSH’s shared save form, adapts to narrow windows, and follows the active light or dark theme. Changing the model or reasoning effort affects the next model request. A request already sent continues unchanged. Explicit `off` remains off. The Lead's route is unchanged.
 
 ## Lead tools
 
+- `list_teammate_models`: refreshes currently authorized providers and models from the live Subagent settings. Supply a provider to list models, and an exact provider/model to inspect supported reasoning efforts. No new main Session is needed.
 - `create_teammate`: supplies the native Team creation fields plus `provider`, `model` and optional `reasoning_effort`. It validates authorization and adapter support before saving the choice and calling the native Team service. Omitted effort uses the configured follow default, initially max.
 - `set_teammate_model`: changes an existing teammate's next model and effort. It neither wakes the teammate nor interrupts its current request.
 
 The original `spawn_teammate` remains available. In follow mode, omitting a per-member choice retains native inheritance. Use `create_teammate` when selecting a different model. Both fresh and fork creation remain owned by DSH's Team and continuation services.
 
 Member choices persist in a plugin-owned storage domain keyed by the exact Team root and teammate name. They survive cold recovery. The plugin does not rewrite Team events or creation descriptors. Actual requests remain recorded in `request/header`.
+
+Removing a route blocks future selections and requests for that route; a request already sent can finish. Disabling Subagent model selection blocks future requests in follow mode. Member history remains visible so the Lead can select an allowed recovery route. Fixed mode remains an explicit Host route policy.
 
 The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
 
@@ -46,7 +49,7 @@ The optional profile override uses these fields; the GUI writes the same namespa
     reasoningEffort: ''
 ```
 
-The mode and route fields are volatile settings. Fixed-route validation happens when that route is used, allowing an unconfigured installation to open its settings page. Model selection follows the Session-start authorization snapshot; changing the ordinary Subagent allowlist affects new Sessions.
+The mode and route fields are volatile settings. Fixed-route validation happens when that route is used, allowing an unconfigured installation to open its settings page. In follow mode, saved additions and removals in the ordinary Subagent settings apply to existing Teams immediately. The native ordinary-subagent tools retain their original Session policy. Historical Session policy events are preserved.
 
 ## Compatibility
 
@@ -69,6 +72,6 @@ The integration suite uses `dsh --profile headless`, its real Loader, tools, Tea
 
 ## Model experience
 
-Two tools and one short policy section are added. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
+Three tools and one short policy section are added. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
 
 MIT licensed.
