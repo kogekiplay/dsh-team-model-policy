@@ -22,7 +22,7 @@ const root = join(__dirname, '..', '..')
 const PACKAGE_NAME = 'dsh-team-model-policy'
 
 /** Own modules inlined into the factory, in dependency order. */
-const MODULES = ['locale.cjs', 'card.cjs', 'view.cjs', 'index.cjs']
+const MODULES = ['locale.cjs', 'styles.cjs', 'card.cjs', 'view.cjs', 'index.cjs']
 
 /** Strip the leading JSDoc/line banner a source may start with before wrapping. */
 function body(source) {

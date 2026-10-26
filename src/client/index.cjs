@@ -2,7 +2,9 @@
 'use strict'
 const { NAMESPACE, createTeamModelPolicyCard } = require('./card.cjs')
 const { en, ja, zh } = require('./locale.cjs')
-const { TeamModelPolicyCard } = require('./view.cjs')
+const { SettingsForm } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { createTeamModelPolicyView } = require('./view.cjs')
+const TeamModelPolicyCard = createTeamModelPolicyView(SettingsForm)
 const NS = 'settings.teamModelPolicy'
 const inject = ['slots', 'locale', 'remote', 'remote.session', 'configForms']
 function apply(ctx) {

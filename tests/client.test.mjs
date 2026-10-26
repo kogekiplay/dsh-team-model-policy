@@ -8,7 +8,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const require = createRequire(import.meta.url);
 const { createTeamModelPolicyCard } = require('../src/client/card.cjs');
 const { createTranslator } = require('../src/client/locale.cjs');
-const { TeamModelPolicyCard } = require('../src/client/view.cjs');
+const { createTeamModelPolicyView } = require('../src/client/view.cjs');
+// The shared form is exercised in the real GUI; this suite renders the plugin-owned controls.
+const TeamModelPolicyCard = createTeamModelPolicyView(props => React.createElement('div', null, props.children));
 function fixture() {
   let snapshot = { status: 'ready', writable: true, revision: 5, value: { mode: 'follow-subagent', provider: '', model: '', reasoningEffort: '', defaultReasoningEffort: 'max' }, user: {} };
   const listeners = new Set(); const writes = [];
@@ -39,6 +41,10 @@ test('distributed client factory loads using only shared platform modules', () =
   let registration; const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
   vm.runInNewContext(source, { window: { __ModuleLoader__: { load: value => { registration = value; } } } });
   assert.equal(registration.id, 'dsh-team-model-policy');
-  const plugin = registration.factory(name => { assert.equal(name, 'react'); return React; });
+  const plugin = registration.factory(name => {
+    if (name === 'react') return React;
+    assert.equal(name, '@deepseek-ai/dsh-client-ui-primitives');
+    return { SettingsForm: () => null };
+  });
   assert.equal(typeof plugin.apply, 'function'); assert.equal(plugin.inject.includes('configForms'), true);
 });
