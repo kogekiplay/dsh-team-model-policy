@@ -18,7 +18,7 @@ function Choice(props) {
   return h('div', { className: 'dtmp-field-control' }, h('select', {
     className: 'dtmp-select', id: props.id, value: props.value, disabled: props.disabled,
     'aria-describedby': props.id + '-hint', onChange: event => props.onChange(event.target.value),
-  }, h('option', { value: '' }, props.emptyLabel),
+  }, props.emptyLabel === undefined ? null : h('option', { value: '' }, props.emptyLabel),
   ...props.options.map(option => h('option', { key: option.id, value: option.id }, option.name))))
 }
 
@@ -58,9 +58,20 @@ function createTeamModelPolicyView(SettingsForm) {
           modeCard('follow-subagent', 'modeFollow', 'modeFollowHint'), modeCard('fixed', 'modeFixed', 'modeFixedHint')),
         follow ? h('div', { className: 'dtmp-default', 'data-default-effort': state.defaultEffort },
           h('div', { className: 'dtmp-default-copy' },
-            h('span', { className: 'dtmp-default-label' }, t('defaultEffortLabel')),
-            h('p', { className: 'dtmp-default-hint' }, t('defaultEffortHint'))),
-          h('code', { className: 'dtmp-effort-badge' }, state.defaultEffort))
+            h('label', { className: 'dtmp-default-label', htmlFor: 'team-model-policy-default-effort' }, t('defaultEffortLabel')),
+            h('p', { className: 'dtmp-default-hint', id: 'team-model-policy-default-effort-hint' }, t('defaultEffortHint'))),
+          h('div', { className: 'dtmp-default-control' }, h(Choice, {
+            id: 'team-model-policy-default-effort', value: state.defaultEffort, disabled,
+            options: [
+              { id: 'max', name: t('defaultEffortMax') },
+              { id: 'high', name: t('defaultEffortHigh') },
+              { id: 'medium', name: t('defaultEffortMedium') },
+              { id: 'low', name: t('defaultEffortLow') },
+              { id: 'off', name: t('defaultEffortOff') },
+              ...['max', 'high', 'medium', 'low', 'off'].includes(state.defaultEffort) ? [] : [{ id: state.defaultEffort, name: state.defaultEffort }],
+            ],
+            onChange: effort => props.edit('defaultReasoningEffort', effort),
+          })))
         : h(React.Fragment, null,
             state.catalogStatus === 'loading' ? h('p', { className: 'dtmp-hint', role: 'status' }, t('loadingModels')) : null,
             state.catalogStatus === 'error' ? h('div', { className: 'dtmp-status', role: 'status' }, t('loadFailed'),

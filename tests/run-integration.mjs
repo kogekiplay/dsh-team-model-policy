@@ -10,7 +10,7 @@ const installed = '/Applications/DeepSeek Harness.app/Contents';
 const cli = process.env.DSH_TEST_CLI ? JSON.parse(process.env.DSH_TEST_CLI) : existsSync(installed + '/Resources/app.asar')
   ? [installed + '/MacOS/DeepSeek Harness', installed + '/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'] : ['dsh'];
 const results = [];
-function runCase(label, { enabled = true, mode = 'normal', home, sessionId, model = 'deepseek-v4.1-flash', policyMode = 'fixed' } = {}) {
+function runCase(label, { enabled = true, mode = 'normal', home, sessionId, model = 'deepseek-v4.1-flash', policyMode = 'fixed', defaultEffort = 'max' } = {}) {
   home ??= join(runRoot, label + '-home');
   const output = join(runRoot, label + '.jsonl');
   const overlay = [
@@ -25,7 +25,7 @@ function runCase(label, { enabled = true, mode = 'normal', home, sessionId, mode
       { id: 'audit-team', name: '@deepseek-ai/dsh-experimental-agent-team' },
       { id: 'audit-team-tools', name: '@deepseek-ai/dsh-experimental-tool-agent-team' },
       { id: 'audit-adapter', name: join(project, 'tests/fixture.mjs'), config: { output, mode } },
-      ...(enabled ? [{ id: 'audit-policy', name: join(project, 'index.mjs'), config: { mode: policyMode, provider: 'route-audit', model, defaultReasoningEffort: 'max' } }] : []),
+      ...(enabled ? [{ id: 'audit-policy', name: join(project, 'index.mjs'), config: { mode: policyMode, provider: 'route-audit', model, defaultReasoningEffort: defaultEffort } }] : []),
     ] },
     { id: 'tool-subagent-control', disabled: true },
   ];
@@ -87,6 +87,11 @@ try {
   assert.equal(firstRequests.at(-1)?.reasoningEffort, 'high');
   assert(followed.requests.filter(r => r.name === 'second').every(r => r.reasoningEffort === 'off'));
   assert(followed.tools.filter(t => t.tool === 'create_teammate' || t.tool === 'set_teammate_model').every(t => !t.isError));
+  const configuredHigh = runCase('follow-configured-default-high', { mode: 'follow', policyMode: 'follow-subagent', defaultEffort: 'high' });
+  const highFirst = configuredHigh.requests.find(r => r.name === 'first');
+  assert.equal(highFirst?.model, 'deepseek-v4.1-flash');
+  assert.equal(highFirst?.reasoningEffort, 'high');
+  assert(configuredHigh.requests.filter(r => r.name === 'second').every(r => r.reasoningEffort === 'off'));
   const nativeFollow = runCase('native-follow-default-max', { mode: 'native-follow', policyMode: 'follow-subagent' });
   assert.equal(nativeFollow.requests.filter(r => r.role === 'teammate').length, 2);
   assert(nativeFollow.requests.filter(r => r.role === 'lead').every(r => r.reasoningEffort === 'off'));

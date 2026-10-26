@@ -48,3 +48,20 @@ test('distributed client factory loads using only shared platform modules', () =
   });
   assert.equal(typeof plugin.apply, 'function'); assert.equal(plugin.inject.includes('configForms'), true);
 });
+
+test('follow default effort is an editable five-level choice and persists independently', async t => {
+  const f = fixture(); t.after(() => f.card.dispose());
+  const markup = renderToStaticMarkup(React.createElement(TeamModelPolicyCard, {
+    view: 'page', t: createTranslator('zh'), useTeamModelPolicyCard: selector => selector(f.card.getSnapshot()),
+  }));
+  assert.match(markup, /<select[^>]+id="team-model-policy-default-effort"/);
+  for (const value of ['max', 'high', 'medium', 'low', 'off']) assert(markup.includes('value="' + value + '"'));
+  f.card.edit('defaultReasoningEffort', 'high');
+  assert.equal(f.card.getSnapshot().defaultEffort, 'high');
+  assert.equal(await f.card.save(), true);
+  assert.deepEqual(f.writes[0].ops, [{ op: 'set', path: ['defaultReasoningEffort'], value: 'high' }]);
+  assert.equal(f.card.getSnapshot().mode, 'follow-subagent');
+  f.card.edit('defaultReasoningEffort', 'max');
+  assert.equal(await f.card.save(), true);
+  assert.equal(f.card.getSnapshot().defaultEffort, 'max');
+});

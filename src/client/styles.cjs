@@ -15,7 +15,7 @@ module.exports = `.dtmp { margin: 28px 0 8px; padding-top: 24px; border-top: 1px
 .dtmp-default-copy { display: grid; gap: 4px; flex: 1; min-width: 180px; }
 .dtmp-default-label { font-size: 13px; line-height: 1.5; font-weight: 500; }
 .dtmp-default-hint { margin: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-secondary); }
-.dtmp-effort-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 5px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-2); font-size: 12px; font-weight: 500; line-height: 1.5; font-variant-caps: all-small-caps; }
+.dtmp-default-control { flex: 0 1 224px; min-width: 180px; max-width: 100%; }
 .dtmp-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .dtmp-field { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .dtmp-field:last-child { grid-column: 1 / -1; }
