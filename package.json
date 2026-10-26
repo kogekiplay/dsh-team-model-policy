@@ -1,13 +1,14 @@
 {
   "name": "dsh-team-model-policy",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pin named DeepSeek Harness teammates to a configured LLM route and report their effective models.",
   "type": "module",
-  "main": "./index.mjs",
+  "main": "./ui.mjs",
   "exports": {
-    ".": "./index.mjs",
+    ".": "./ui.mjs",
     "./package.json": "./package.json",
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./policy": "./index.mjs"
   },
   "files": [
     "index.mjs",
@@ -19,7 +20,8 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "authorization.mjs"
+    "authorization.mjs",
+    "ui.mjs"
   ],
   "engines": {
     "node": ">=24.9.0",
