@@ -5,6 +5,7 @@ import { authorizeCurrent, listCurrentModels } from './authorization.mjs';
 export async function registerModelTools(ctx, { settings, choices, track }) {
   const require = createRequire(ctx.profileContext.installAnchor);
   const { defineTool } = require('@deepseek-ai/dsh-tools');
+  const retirements = () => ctx.get('teamRetirements');
   const reserved = new Set();
   const failure = (message, code) => Object.assign(new Error(message), { code });
   const lead = agent => {
@@ -34,6 +35,15 @@ export async function registerModelTools(ctx, { settings, choices, track }) {
   const output = { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] };
   const disposers = [];
   try {
+    disposers.push(ctx.tools.register(defineTool({
+      name: 'remove_teammate',
+      description: 'Remove one teammate from this Team, stop its work, and return its unfinished tasks to the unassigned board. Keeps conversation history. Only the Lead may remove teammates.',
+      parameters: { target: { type: 'string', required: true, description: 'Teammate target returned by list_agents. The Lead cannot be removed; removed names cannot be reused.' } },
+      output,
+      execute(args, exec) {
+        return track(exec.signal, async signal => { lead(exec.agent); return await retirements().remove(exec.agent, args.target, signal); });
+      },
+    })));
     disposers.push(ctx.tools.register(defineTool({
       name: 'list_teammate_models',
       description: 'Refresh the latest models authorized for teammates in Subagent settings. Newly saved providers and models are available to this existing Team immediately.',
@@ -85,6 +95,7 @@ export async function registerModelTools(ctx, { settings, choices, track }) {
       execute(args, exec) {
         return track(exec.signal, async signal => {
           const caller = lead(exec.agent);
+          retirements().assertActive(exec.agent, args.target);
           const row = ctx.agentTeams.listMembers(exec.agent).find(candidate => candidate.name === args.target && candidate.role === 'teammate');
           if (row === undefined) throw failure('The named teammate does not exist in this Team.', 'TEAM_MEMBER_NOT_FOUND');
           if (reserved.has(key(caller.root.id, args.target))) throw failure('Teammate creation is still in progress.', 'TEAM_MEMBER_BUSY');

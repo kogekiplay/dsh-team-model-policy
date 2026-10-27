@@ -5,12 +5,29 @@ const { en, ja, zh } = require('./locale.cjs')
 const { SettingsForm } = require('@deepseek-ai/dsh-client-ui-primitives')
 const { createTeamModelPolicyView } = require('./view.cjs')
 const TeamModelPolicyCard = createTeamModelPolicyView(SettingsForm)
+const React = require('react')
+const teamLocale = require('./team-locale.cjs')
+const { TeamAction, styles: teamStyles } = require('./team-view.cjs')
+function RetirementTeamAction(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, teamStyles), React.createElement(TeamAction, props)) }
 const NS = 'settings.teamModelPolicy'
-const inject = ['slots', 'locale', 'remote', 'remote.session', 'configForms']
+const inject = ['slots', 'locale', 'remote', 'remote.session', 'remote.commands', 'configForms', 'sessions', 'uiWorkspace']
 function apply(ctx) {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { en, ja, zh }))
+  ctx.effect(() => ctx.locale.register(teamLocale.NS, { en: teamLocale.en, zh: teamLocale.zh, ja: teamLocale.ja }))
   const scope = ctx.configForms.get(NAMESPACE)
+  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions', id: 'agent-team', priority: -1, order: -20, locale: teamLocale.NS,
+    inject: () => ({ openTeammate(sessionId, childSessionId) {
+      if ((ctx.sessions.retainInfo(sessionId).getSnapshot().retainedBy.mainView ?? 0) === 0) return
+      const parentSessionId = ctx.sessions.binding(sessionId)?.session.getSnapshot().subagent?.address.parentSessionId ?? sessionId
+      ctx.uiWorkspace.openSession(childSessionId === parentSessionId ? parentSessionId : { parentSessionId, childSessionId, mode: 'continuable' })
+    }, async removeTeammate(sessionId, name) {
+      const response = await ctx.remote.commands.execute(sessionId, '/team-remove ' + name, [])
+      if (!response.ok) throw new Error(response.error.message)
+      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? 'Team removal command is unavailable')
+    } }),
+  }, RetirementTeamAction)))
   const current = createTeamModelPolicyCard({ scope,
     readCatalog: () => ctx.remote.session.modelCatalog().then(response => response.ok ? response.value : undefined), t })
   ctx.effect(() => ctx.remote.$on('llm/adapters-updated', () => { void current.refreshCatalog() }))

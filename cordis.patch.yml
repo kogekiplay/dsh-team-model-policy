@@ -1,4 +1,6 @@
 - insert:
+    - id: team-member-retirements
+      name: dsh-team-model-policy/retirements
     - id: team-model-policy
       name: dsh-team-model-policy/policy
       config:

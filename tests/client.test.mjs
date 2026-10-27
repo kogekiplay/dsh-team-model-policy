@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { createTeamModelPolicyCard } = require('../src/client/card.cjs');
 const { createTranslator } = require('../src/client/locale.cjs');
 const { createTeamModelPolicyView } = require('../src/client/view.cjs');
+const { visibleTeam } = require('../src/client/retirement-view.cjs');
 // The shared form is exercised in the real GUI; this suite renders the plugin-owned controls.
 const TeamModelPolicyCard = createTeamModelPolicyView(props => React.createElement('div', null, props.children));
 function fixture() {
@@ -43,6 +44,7 @@ test('distributed client factory loads using only shared platform modules', () =
   assert.equal(registration.id, 'dsh-team-model-policy');
   const plugin = registration.factory(name => {
     if (name === 'react') return React;
+    if (name === 'react-dom') return require('react-dom');
     assert.equal(name, '@deepseek-ai/dsh-client-ui-primitives');
     return { SettingsForm: () => null };
   });
@@ -64,4 +66,13 @@ test('follow default effort is an editable five-level choice and persists indepe
   f.card.edit('defaultReasoningEffort', 'max');
   assert.equal(await f.card.save(), true);
   assert.equal(f.card.getSnapshot().defaultEffort, 'max');
+});
+test('retired members disappear while tasks and failure evidence remain visible', () => {
+  const team = { members: [{ id: 'lead-id', name: 'lead', role: 'lead' }, { id: 'child-id', name: 'worker', role: 'teammate' }], tasks: [{ id: 'task-1' }] };
+  const filtered = visibleTeam(team, { members: [{ id: 'child-id', name: 'worker', phase: 'removed', releasedTasks: ['task-1'] }] });
+  assert.deepEqual(filtered.members.map(member => member.name), ['lead']);
+  assert.deepEqual(filtered.tasks, team.tasks);
+  const failed = visibleTeam(team, { members: [{ id: 'child-id', name: 'worker', phase: 'removed', releasedTasks: [], error: 'cleanup incomplete' }], failure: 'projection failure' });
+  assert.deepEqual(failed.members.map(member => member.name), ['lead']);
+  assert.equal(failed.failure, 'projection failure');
 });

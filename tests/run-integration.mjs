@@ -22,10 +22,11 @@ function runCase(label, { enabled = true, mode = 'normal', home, sessionId, mode
     { insert: [
       { id: 'audit-model-selection-policy', name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings', config: { enabled: true, allowedModels: [
         { provider: 'route-audit', model: 'gpt-6.1-sol' }, { provider: 'route-audit', model: 'deepseek-v4.1-flash' } ] } },
+      { id: 'audit-workspace', name: '@deepseek-ai/dsh-workspace' },
       { id: 'audit-team', name: '@deepseek-ai/dsh-experimental-agent-team' },
       { id: 'audit-team-tools', name: '@deepseek-ai/dsh-experimental-tool-agent-team' },
       { id: 'audit-adapter', name: join(project, 'tests/fixture.mjs'), config: { output, mode } },
-      ...(enabled ? [{ id: 'audit-policy', name: join(project, 'index.mjs'), config: { mode: policyMode, provider: 'route-audit', model, defaultReasoningEffort: defaultEffort } }] : []),
+      ...(enabled ? [{ id: 'audit-retirements', name: join(project, 'retirements.mjs') }, { id: 'audit-policy', name: join(project, 'index.mjs'), config: { mode: policyMode, provider: 'route-audit', model, defaultReasoningEffort: defaultEffort } }] : []),
     ] },
     { id: 'tool-subagent-control', disabled: true },
   ];
@@ -49,6 +50,7 @@ function runCase(label, { enabled = true, mode = 'normal', home, sessionId, mode
   assert.equal(child.error, undefined, label + ': ' + child.error?.message);
   assert.equal(child.signal, null, label + ': unexpectedly signalled');
   assert.equal(child.status, 0, label + ': see stderr log in ' + runRoot);
+  assert(!/entr(?:y|ies) did not activate/.test(child.stderr), label + ': composition did not activate; see stderr log');
   assert.match(child.stdout, /AUDIT_FINISHED/);
   const sessions = join(home, 'sessions');
   const artifacts = readdirSync(sessions, { recursive: true }).filter(p => p.endsWith('.jsonl.zstd'));
@@ -69,7 +71,16 @@ function runCase(label, { enabled = true, mode = 'normal', home, sessionId, mode
   }
   return { ...summary, events };
 }
+const retirementOnly = ['retirement', 'reload'].includes(process.argv[2]);
+if (process.argv[2] === 'reload') {
+  const reload = runCase('remove-during-provider-reload', { mode: 'retire-reload', policyMode: 'follow-subagent' });
+  const result = reload.tools.find(t => t.tool === 'audit_remove_reload');
+  console.log(JSON.stringify({ result, events: reload.events.filter(e => e.kind.startsWith('reload')), evidence: runRoot }, null, 2));
+  assert.equal(result.isError, false);
+  process.exit(0);
+}
 try {
+  if (!retirementOnly) {
   const before = runCase('baseline', { enabled: false });
   assert.equal(before.requests.filter(r => r.role === 'teammate').length, 2);
   assert(before.requests.filter(r => r.role === 'teammate').every(r => r.model === 'gpt-6.1-sol'));
@@ -120,9 +131,49 @@ try {
   assert.equal(first.at(-1).reasoningEffort, 'off');
   assert(dynamic.requests.some(r => r.name === 'second' && r.provider === 'other-audit' && r.reasoningEffort === 'max'));
   assert(dynamic.events.filter(e => e.kind === 'saved-policy').every(e => e.sessionPolicies.flat().every(p => p.provider !== 'other-audit')));
+  }
+  const removed = runCase('remove-running-teammate', { mode: 'retire-running', policyMode: 'follow-subagent' });
+  assert(removed.events.some(e => e.kind === 'worker-running'));
+  assert(removed.events.some(e => e.kind === 'worker-stopped'));
+  const cleanupIndex = removed.events.findIndex(e => e.kind === 'owned-job-exit');
+  const removalIndex = removed.events.findIndex(e => e.kind === 'tool' && e.tool === 'remove_teammate' && !e.isError);
+  assert(cleanupIndex >= 0 && cleanupIndex < removalIndex, 'Owned worker must terminate before removal reports success');
+  const commandRemoved = runCase('remove-via-roster-command', { mode: 'retire-command', policyMode: 'follow-subagent' });
+  assert.equal(commandRemoved.tools.find(t => t.tool === 'audit_remove_command').value.commandSuccess, true);
+  assert.deepEqual(commandRemoved.tools.find(t => t.tool === 'list_agents').value.map(row => row.target), ['lead', 'second']);
+  const reloadRemoved = runCase('remove-during-provider-reload', { mode: 'retire-reload', policyMode: 'follow-subagent' });
+  assert.equal(reloadRemoved.tools.find(t => t.tool === 'audit_remove_reload').isError, false);
+  assert(reloadRemoved.events.some(e => e.kind === 'reload-barrier' && e.projectionAlive));
+  assert(reloadRemoved.events.some(e => e.kind === 'reload-completed' && e.recovered));
+  const removals = removed.tools.filter(t => t.tool === 'remove_teammate');
+  assert.equal(removals[0].isError, false);
+  assert.equal(removals[0].value.removed, true);
+  assert.equal(removals[0].value.remainingAssignedTasks, 0);
+  assert.deepEqual(removals[0].value.releasedTasks, ['task-1']);
+  assert.equal(removals[1].value.alreadyRemoved, true);
+  assert.equal(removals[2].isError, true);
+  const visible = removed.tools.find(t => t.tool === 'list_agents').value;
+  assert.deepEqual(visible.map(row => row.target), ['lead', 'second']);
+  const reclaimed = removed.tools.find(t => t.tool === 'team_task_get').value;
+  assert.equal(reclaimed.status, 'pending'); assert.equal(reclaimed.ownerName, undefined);
+  assert.equal(removed.tools.find(t => t.tool === 'send_message').isError, true);
+  assert.equal(removed.tools.find(t => t.tool === 'audit_direct_send').value.blocked, true);
+  const state = removed.events.find(e => e.kind === 'retirement-state');
+  assert.equal(state.archived, true); assert.equal(state.childResident, false);
+  assert.equal(state.snapshot.values.teamRetirements.members[0].phase, 'removed');
+  assert(state.rawMembers.some(member => member.name === 'first'));
+  const coldRemoved = runCase('removed-member-cold-resume', { mode: 'retire-resume', policyMode: 'follow-subagent', home: removed.home, sessionId: removed.requests.find(row => row.role === 'lead').id });
+  assert.deepEqual(coldRemoved.tools.find(t => t.tool === 'list_agents').value.map(row => row.target), ['lead', 'second']);
+  assert.equal(coldRemoved.tools.find(t => t.tool === 'remove_teammate').value.alreadyRemoved, true);
+  assert.equal(coldRemoved.tools.find(t => t.tool === 'send_message').isError, true);
+  assert.equal(coldRemoved.tools.find(t => t.tool === 'audit_direct_send').value.blocked, true);
+  assert.equal(coldRemoved.requests.filter(row => row.name === 'first').length, 0);
+  assert(coldRemoved.requests.some(row => row.name === 'second'));
+  if (!retirementOnly) {
   const invalid = runCase('invalid-route', { mode: 'invalid-route', model: 'missing-audit-model' });
   assert.equal(invalid.requests.filter(r => r.role === 'teammate').length, 0);
   assert.equal(invalid.tools.find(t => t.tool === 'spawn_teammate').isError, true);
+  }
   console.log(JSON.stringify({ passed: true, cases: results.map(r => r.label), evidence: runRoot }, null, 2));
 } catch (error) {
   console.error(error); console.error('Evidence preserved at ' + runRoot); process.exitCode = 1;

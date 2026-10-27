@@ -24,6 +24,7 @@ function harness(resolveCallConfig = async choice => choice) {
     listMembers: () => members });
   ctx.provide('llm', { resolveCallConfig });
   ctx.provide('tools', {});
+  ctx.provide('teamRetirements', { visibleRows: (_caller, rows) => rows });
   const persistence = { open: async () => { throw new Error('Unexpected persisted read'); } };
   ctx.provide('sessionPersistence', persistence);
   ctx.provide('systemPrompt', { getSectionOrder: () => 1, section(section) {

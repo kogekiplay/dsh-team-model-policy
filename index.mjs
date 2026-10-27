@@ -3,7 +3,7 @@ import { readSettings } from './settings.mjs';
 import { authorizeCurrent, currentAuthorization } from './authorization.mjs';
 export { Config } from './settings.mjs';
 export const name = 'team-model-policy';
-export const inject = ['agents', 'agentTeams', 'llm', 'tools', 'systemPrompt', 'sessionPersistence'];
+export const inject = ['agents', 'agentTeams', 'llm', 'tools', 'systemPrompt', 'sessionPersistence', 'teamRetirements'];
 
 /** A configuration, runtime-compatibility, or policy-lifecycle refusal. */
 export class TeamModelPolicyError extends Error {
@@ -197,7 +197,8 @@ export function apply(ctx, config) {
         const value = decision.value === undefined ? result.value : decision.value;
         if (exec.name === 'list_agents') {
           if (!Array.isArray(value)) throw new TeamModelPolicyError('Unexpected list_agents output.', 'UNSUPPORTED_OUTPUT');
-          const rows = await Promise.allSettled(value.map(row => fixMember(row, members, linked)));
+          const visible = ctx.teamRetirements.visibleRows(exec.agent, value);
+          const rows = await Promise.allSettled(visible.map(row => fixMember(row, members, linked)));
           const failure = rows.find(row => row.status === 'rejected');
           if (failure !== undefined) throw failure.reason;
           return { ...decision, value: rows.map(row => row.value) };
@@ -207,6 +208,11 @@ export function apply(ctx, config) {
         }
         return { ...decision, value: { ...value, member: await fixMember(value.member, members, linked) } };
       });
+    });
+    yield ctx.systemPrompt.section({
+      name: 'team:member-removal',
+      order: ctx.systemPrompt.getSectionOrder('TEAM_POLICY'),
+      text: 'Use remove_teammate when the user asks to remove a teammate from the Team. Removed teammates cannot be messaged or assigned new work. Their history is retained and their names remain reserved.',
     });
     yield ctx.systemPrompt.section({
       name: 'team:model-policy',
