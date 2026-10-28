@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "团队模型策略",
+    "description": "为指定的 DeepSeek Harness 队友配置模型路由，并显示其实际使用的模型。"
+  }
+}

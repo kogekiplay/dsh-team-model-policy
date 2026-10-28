@@ -39,7 +39,7 @@ module.exports = {
   "zh": {
     "trigger": "智能体团队",
     "loading": "正在加载团队…",
-    "unavailable": "Team 暂不可用",
+    "unavailable": "团队暂不可用",
     "failure": "团队持久记录无效：{message}",
     "empty": "暂无共享任务，可以通过对话创建",
     "roster": "成员",
@@ -47,7 +47,7 @@ module.exports = {
     "model": "模型",
     "open": "打开成员会话",
     "current": "当前会话",
-    "owner": "Owner",
+    "owner": "负责人",
     "unowned": "未分配",
     "blockedBy": "依赖",
     "writeScopes": "写入范围",

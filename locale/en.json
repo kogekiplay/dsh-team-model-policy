@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Team model policy",
+    "description": "Pin named DeepSeek Harness teammates to a configured LLM route and report their effective models."
+  }
+}
