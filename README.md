@@ -4,10 +4,10 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 
 ## Install
 
-Install this public URL in DSH's Plugins page:
+Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.4.1.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.5.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -52,9 +52,13 @@ The optional profile override uses these fields; the GUI writes the same namespa
 
 The Host policy, retirement service, and browser settings are separate bundle entries so saving settings does not remount the settings window. The retirement service uses a plugin-owned projection and the Workspace archive admission path; native Team history and member records remain intact. The mode and route fields are volatile settings. Fixed-route validation happens when that route is used, allowing an unconfigured installation to open its settings page. In follow mode, saved additions and removals in the ordinary Subagent settings apply to existing Teams immediately. The native ordinary-subagent tools retain their original Session policy. Historical Session policy events are preserved.
 
-## Compatibility
+## Supported DSH version
 
-Tested with the request-waterfall runtime in Desktop 0.2.1-rc.3. Newer development runtimes exposing `Agent.model` are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
+This release supports **DSH 0.2.1-rc.5 only**. Plugin releases track DSH updates: each release targets the current verified DSH version, and older DSH versions are not maintained. Upgrade DSH to the declared version before installing the matching plugin release.
+
+本插件随 DSH 更新。本版仅支持 **DSH 0.2.1-rc.5**，后续版本针对新的 DSH 版本验证和发布，不保留旧版兼容范围。请先升级 DSH，再安装对应的插件版本。
+
+All 12 Loader/headless scenarios passed against the official 0.2.1-rc.5 npm runtime with unchanged feature code. Required Client exports and contracts were checked; rc.5 Desktop visual verification remains pending. Runtimes exposing an unsupported `Agent.model` API are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
 
 Disabling the component removes listeners, prompt contributions and tools after owned operations settle. Retired child Sessions remain archived after disablement; the native historical roster becomes visible when the popup replacement is disabled. Re-enable the plugin to restore its filtered roster. The retirement service stop budget is configurable as `jobStopTimeoutMs` under `team-member-retirements` (default 30000 ms). It preserves recorded requests and choices. Existing Sessions can retain their last recorded route after disablement; use a model picker or choose a new route explicitly.
 
