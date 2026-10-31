@@ -1,7 +1,7 @@
 {
   "name": "dsh-team-model-policy",
-  "version": "0.5.0",
-  "description": "Pin named DeepSeek Harness teammates to a configured LLM route and report their effective models.",
+  "version": "0.6.0",
+  "description": "Configure teammate models and manually retire ordinary subagents or Team members while retaining conversation history.",
   "type": "module",
   "main": "./ui.mjs",
   "exports": {

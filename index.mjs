@@ -192,9 +192,12 @@ export function apply(ctx, config) {
         const decision = await next();
         linked.throwIfAborted();
         if (decision.kind !== 'accept' || decision.content !== undefined) return decision;
+        const value = decision.value === undefined ? result.value : decision.value;
+        // Native ordinary-subagent listing has IDs rather than Team targets.
+        if (exec.name === 'list_agents' && Array.isArray(value) && value.some(row => row.kind !== undefined && typeof row.id === 'string')) return decision;
+        if (ctx.agentTeams.tryMembership(exec.agent) === undefined) return decision;
         const members = ctx.agentTeams.listMembers(exec.agent);
         members.caller = exec.agent;
-        const value = decision.value === undefined ? result.value : decision.value;
         if (exec.name === 'list_agents') {
           if (!Array.isArray(value)) throw new TeamModelPolicyError('Unexpected list_agents output.', 'UNSUPPORTED_OUTPUT');
           const visible = ctx.teamRetirements.visibleRows(exec.agent, value);
@@ -212,7 +215,7 @@ export function apply(ctx, config) {
     yield ctx.systemPrompt.section({
       name: 'team:member-removal',
       order: ctx.systemPrompt.getSectionOrder('TEAM_POLICY'),
-      text: 'Use remove_teammate when the user asks to remove a teammate from the Team. Removed teammates cannot be messaged or assigned new work. Their history is retained and their names remain reserved.',
+      text: 'For manual cleanup, list_manageable_subagents discovers ordinary child sessions as well as Team members. Use remove_subagent with its session ID, or remove_teammate with a Team name. Removal stops and archives the selected subtree while preserving history; Team removal reclaims unfinished tasks. Do not infer that inactive means unused or remove children automatically.',
     });
     yield ctx.systemPrompt.section({
       name: 'team:model-policy',

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "团队模型策略",
-    "description": "为指定的 DeepSeek Harness 队友配置模型路由，并显示其实际使用的模型。"
+    "description": "配置团队模型，手动清理普通子智能体与团队成员，并保留会话历史。"
   }
 }

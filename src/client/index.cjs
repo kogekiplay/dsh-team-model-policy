@@ -8,13 +8,40 @@ const TeamModelPolicyCard = createTeamModelPolicyView(SettingsForm)
 const React = require('react')
 const teamLocale = require('./team-locale.cjs')
 const { TeamAction, styles: teamStyles } = require('./team-view.cjs')
+const subagentLocale = require('./subagent-locale.cjs')
+const { SubagentCatalogAction, SubagentHeaderLineage, styles: subagentStyles } = require('./subagent-view.cjs')
 function RetirementTeamAction(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, teamStyles), React.createElement(TeamAction, props)) }
+function SubagentCatalog(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, subagentStyles), React.createElement(SubagentCatalogAction, props)) }
+function SubagentLineage(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, subagentStyles), React.createElement(SubagentHeaderLineage, props)) }
 const NS = 'settings.teamModelPolicy'
 const inject = ['slots', 'locale', 'remote', 'remote.session', 'remote.commands', 'configForms', 'sessions', 'uiWorkspace']
 function apply(ctx) {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { en, ja, zh }))
   ctx.effect(() => ctx.locale.register(teamLocale.NS, { en: teamLocale.en, zh: teamLocale.zh, ja: teamLocale.ja }))
+  ctx.effect(() => ctx.locale.register(subagentLocale.NS, { en: subagentLocale.en, zh: subagentLocale.zh, ja: subagentLocale.ja }))
+  const subagentActions = () => ({
+    openChild: address => ctx.uiWorkspace.openSession(address),
+    openChildAside(address) {
+      const sidebar = ctx.get('sidebarRight')
+      if (sidebar === undefined) return ctx.uiWorkspace.openSession(address)
+      const query = new URLSearchParams({ parent: address.parentSessionId, mode: address.mode })
+      sidebar.openResource('dsh-resource://subagentchat/session/' + encodeURIComponent(address.childSessionId) + '?' + query, { kind: 'subagentchat', preferNewPane: true })
+    },
+    refreshProjection: id => ctx.sessions.refreshProjections(id),
+    async removeSubagent(authoritySessionId, childId) {
+      const response = await ctx.remote.commands.execute(authoritySessionId, '/subagent-remove ' + childId, [])
+      if (!response.ok) throw new Error(response.error.message)
+      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? '子智能体移除命令不可用。')
+      await ctx.sessions.refreshProjections(authoritySessionId)
+    },
+  })
+  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions', id: 'subagent-catalog', priority: -1, order: 10, locale: subagentLocale.NS, inject: subagentActions,
+  }, SubagentCatalog)))
+  ctx.effect(() => ctx.slots.inject('conversation.session.header.lineage', () => ctx.slots.register({
+    name: 'conversation.session.header.lineage', priority: -1, locale: subagentLocale.NS, inject: subagentActions,
+  }, SubagentLineage)))
   const scope = ctx.configForms.get(NAMESPACE)
   ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'agent-team', priority: -1, order: -20, locale: teamLocale.NS,

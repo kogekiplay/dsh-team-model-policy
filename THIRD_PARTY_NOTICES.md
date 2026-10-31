@@ -1,6 +1,6 @@
 # Third-party notices
 
-The Team popup component and styles are adapted from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), packages/experimental/client-ui-agent-team.
+The Team popup component and styles are adapted from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), packages/experimental/client-ui-agent-team. The subagent catalog preserves navigation and metric conventions from packages/client/ui-subagent.
 
 MIT License
 

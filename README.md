@@ -7,7 +7,7 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.5.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.6.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -36,6 +36,21 @@ Removing a route blocks future selections and requests for that route; a request
 
 The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
 
+## 手动清理子智能体 / Manual subagent cleanup
+
+普通子智能体不一定是 Team 成员。本插件保留两条独立路径：
+
+- 在会话标题栏的 **子智能体** 下拉列表中，点击某个本地子智能体旁的 **移除**，阅读确认说明后执行。嵌套子会话保留展开、主区域打开及侧栏打开功能。
+- 用户也可以在父会话中输入 `/subagent-remove <session-id>`，不需要模型推理。
+- Lead 或拥有该子会话的父智能体先调用 `list_manageable_subagents` 获取准确的会话 ID，再调用 `remove_subagent`；Team 名称入口 `remove_teammate` 仍可用。
+- 普通本地子智能体：停止所选子树、等待后台工作收敛、归档子会话并从插件列表和计数中过滤；刷新或重启后保持。历史日志和原生目录记录保留，不物理删除。
+- Team 成员：自动转到已有退队服务，额外回收未完成共享任务，不能绕过任务回收。
+- 外部执行没有可归档的本地 Session，未知或损坏目录也无法验证归属，因此这些项暂不提供移除按钮。不能移除当前会话、祖先或其他会话树中的智能体。
+
+清理完全手动触发。**未运行不代表任务已完成或没有用处**，插件不会按空闲状态自动移除。未收敛的操作显示可重试错误并保留 `removing` 状态，只有清理成功后才从列表消失。禁用插件会恢复原生历史目录显示；已归档子会话仍保持归档。
+
+The native subagent catalog and lineage controls gain per-entry confirmed removal. `list_manageable_subagents` discovers ordinary children and Team members by exact session ID; `remove_subagent` and `/subagent-remove <session-id>` share the Host operation. Only descendants of the invoking parent are eligible. Local ordinary subtrees are stopped and archived with history retained; Team members use the existing task-reclaiming removal flow. External executions, unknown modes and unreadable branches are refused rather than reported as removed. No automatic cleanup runs.
+
 ## Host configuration
 
 The optional profile override uses these fields; the GUI writes the same namespace:
@@ -58,7 +73,7 @@ This release supports **DSH 0.2.1-rc.5 only**. Plugin releases track DSH updates
 
 本插件随 DSH 更新。本版仅支持 **DSH 0.2.1-rc.5**，后续版本针对新的 DSH 版本验证和发布，不保留旧版兼容范围。请先升级 DSH，再安装对应的插件版本。
 
-All 12 Loader/headless scenarios passed against the official 0.2.1-rc.5 npm runtime with unchanged feature code. Required Client exports and contracts were checked; rc.5 Desktop visual verification remains pending. Runtimes exposing an unsupported `Agent.model` API are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
+The existing 12 Loader/headless scenarios were verified against the official 0.2.1-rc.5 npm runtime. Ordinary-subagent cleanup has additional isolated lifecycle and real React component tests. Required Client exports and contracts were checked; Desktop screenshot-level verification is reported separately from automated tests. Runtimes exposing an unsupported `Agent.model` API are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
 
 Disabling the component removes listeners, prompt contributions and tools after owned operations settle. Retired child Sessions remain archived after disablement; the native historical roster becomes visible when the popup replacement is disabled. Re-enable the plugin to restore its filtered roster. The retirement service stop budget is configurable as `jobStopTimeoutMs` under `team-member-retirements` (default 30000 ms). It preserves recorded requests and choices. Existing Sessions can retain their last recorded route after disablement; use a model picker or choose a new route explicitly.
 
@@ -77,6 +92,6 @@ The integration suite uses `dsh --profile headless`, its real Loader, tools, Tea
 
 ## Model experience
 
-Four model-facing tools and one short policy section are added. Teammate removal is a destructive Team operation and remains Lead-only. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
+Six model-facing tools and two short policy sections are added. Teammate removal is a destructive Team operation and remains Lead-only. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
 
 MIT licensed.
