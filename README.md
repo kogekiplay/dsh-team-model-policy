@@ -7,7 +7,7 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.6.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.7.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -20,6 +20,16 @@ Open **Settings → Team models / 设置 → 团队模型** in the left navigati
 - **Fixed model / 固定模型**: all named teammates use the selected provider, model and effort. An empty fixed effort follows that model's own default. Per-member switches are refused while this mode is active.
 
 The follow-mode default reasoning effort is editable on this page: max (initial default), high, medium, low, or off. Save the choice to apply it when the Lead leaves effort unspecified. The two modes appear as selection cards. The page uses DSH’s shared save form, adapts to narrow windows, and follows the active light or dark theme. Changing the model or reasoning effort affects the next model request. A request already sent continues unchanged. Explicit `off` remains off. The Lead's route is unchanged.
+
+## 团队工具与权限 / Teammate capabilities and permissions
+
+命名的 **Team 成员**通过原生创建流程继承 Lead 的能力组合。普通模式下可直接使用当前工具列表中的内置工具；PTC 模式下使用 `run_code` 中的 `tools.*` SDK。SDK 声明不是可以独立调用的工具名称。
+
+从 v0.7.0 起，Team 成员的**常驻沙箱模式与审批策略跟随当前 Lead**：创建、恢复、模型步骤及工具派发时校验并同步，Lead 权限变更也会通知在线成员。Lead 放宽权限后已有成员无需重新创建；Lead 收紧为只读后，后续写入会被拦截。权限变化按原生事件追加在成员自己的日志中，保留执行身份及历史。请在 Lead 会话中调整共享权限，成员单独调整的值会在同步时恢复为 Lead 的值。
+
+这只同步 Lead 的常驻授权，不复制单次审批产生的临时授权，不扩大工作区边界，也不把队员冒充为 Lead。普通 `subagent`/`subagent_fork` 继续使用其创建时的独立授权快照。需要直接人类交互、目标管理或 Lead 身份的操作仍交给 Lead，插件的 Lead 专用工具不会在队员的全局工具列表中暴露；原生服务的角色与审批校验继续生效。禁用本插件后不再持续同步，已有日志中的最后权限值保留。
+
+Named Team members retain the native inherited tool composition. Native mode uses advertised tools directly; PTC uses generated SDK bindings inside `run_code`. The Host mirrors the exact live Lead's standing sandbox and approval settings at creation/resume, policy changes, model steps, and tool dispatch. Tightening and loosening both propagate; ordinary delegated children keep their original policy snapshots. Only canonical permission setters are used, one-shot grants do not transfer, immutable workspace boundaries are checked, and caller identity is preserved. Human-only and Lead-only actions remain subject to native restrictions.
 
 ## Lead tools
 
@@ -84,6 +94,10 @@ node src/client/build.cjs --check
 node --test tests/client.test.mjs
 ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/policy.test.mjs tests/choices.test.mjs
 node tests/run-integration.mjs
+node tests/run-team-access.mjs --verify
+node tests/run-team-access.mjs --ptc --verify
+node tests/run-team-access.mjs --race --verify
+node tests/run-team-access.mjs --race --ptc --verify
 ```
 
 The integration suite uses `dsh --profile headless`, its real Loader, tools, Team lifecycle and persistence. Only the external LLM adapter is scripted. It checks native baseline behavior, fixed routes, cold recovery, follow-mode default max, explicit off, a mid-session model/effort switch, live teammate removal, the roster command, provider reload during removal, owned-worker cleanup, task reclamation, cold recovery fencing, and route failures. It independently decodes persisted request headers with `zstd`. Every attempt is retained under `.evidence/` and excluded from Git.
@@ -92,6 +106,6 @@ The integration suite uses `dsh --profile headless`, its real Loader, tools, Tea
 
 ## Model experience
 
-Six model-facing tools and two short policy sections are added. Teammate removal is a destructive Team operation and remains Lead-only. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
+Six model-facing tools and two short policy sections are added. A short logged runtime context clarifies Team permission sharing and PTC invocation; scoped masks hide global Lead-only schemas from teammates. Teammate removal is a destructive Team operation and remains Lead-only. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
 
 MIT licensed.

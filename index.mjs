@@ -138,6 +138,10 @@ export function apply(ctx, config) {
     const { registerModelTools } = await import('./model-tools.mjs');
     return await registerModelTools(child, { settings, choices, track });
   }));
+  ctx.inject(['profileContext', 'sandboxPolicy', 'approval'], child => child.effect(async () => {
+    const { registerTeammateAccess } = await import('./teammate-access.mjs');
+    return registerTeammateAccess(child);
+  }));
 
   ctx.effect(function* () {
     yield ctx.on('agent/created', async ({ agent, signal }) => {
