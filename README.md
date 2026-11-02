@@ -7,7 +7,7 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.8.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.9.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -45,6 +45,16 @@ Member choices persist in a plugin-owned storage domain keyed by the exact Team 
 Removing a route blocks future selections and requests for that route; a request already sent can finish. Removing a teammate also archives its Session with stop activity, filters it from the Team popup and `list_agents`, and rejects both model-side messages and later GUI attempts to resume it. If a stop or task cleanup cannot finish, the state remains `removing` with an actionable error and the Lead can retry. Disabling Subagent model selection blocks future requests in follow mode. Member history remains visible so the Lead can select an allowed recovery route. Fixed mode remains an explicit Host route policy.
 
 The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
+
+## 成员容量复用 / Reusable member capacity
+
+从 v0.9.0 起，`maxMembers` 对插件中的团队创建操作表示**尚未成功移除的成员数上限**。例如配置为 8，创建 8 个成员并全部成功移除后，可以再创建 8 个新成员；Lead 不计入该上限。`create_teammate` 和原生 `spawn_teammate` 都使用同一处理路径，现有会话与重启后的会话均可复用名额。
+
+只有完整退队且没有清理错误的记录才能释放名额。未运行、准备中、失败但尚未手动移除、移除中或移除失败的成员仍占名额。历史、任务回收和归档保持原样，旧名字仍永久保留，不能复用。
+
+rc.5 的原生上限按历史名册计数且没有退队计数接口。本插件适配创建入口，在每次原生创建事务中使用只读的容量视图，按成功退队记录抵扣历史占位；不修改共享的原生配置、名册、Session 文件或 Team phase，也不重载原生 Team 服务。原生事务继续串行校验并发创建，所以一个空位只允许一个请求成功。禁用本插件后恢复原生历史总数上限。
+
+`maxMembers` remains the configured limit, interpreted while the plugin is active as unreleased teammates rather than all historical names. Only committed successful retirement earns capacity credit. Both creation tools reuse the native roster implementation and serialized transaction through an rc.5-specific, per-call read-only view; the shared native limit and full historical roster remain unchanged. Retired names remain reserved, failed/removing entries still count until cleanup succeeds, and disabling the plugin restores native historical-limit behavior.
 
 ## 移除已完成任务 / Remove completed tasks
 
@@ -109,6 +119,7 @@ node tests/run-team-access.mjs --ptc --verify
 node tests/run-team-access.mjs --race --verify
 node tests/run-team-access.mjs --race --ptc --verify
 node tests/run-task-removal.mjs
+node tests/run-team-capacity.mjs
 ```
 
 The integration suite uses `dsh --profile headless`, its real Loader, tools, Team lifecycle and persistence. Only the external LLM adapter is scripted. It checks native baseline behavior, fixed routes, cold recovery, follow-mode default max, explicit off, a mid-session model/effort switch, live teammate removal, the roster command, provider reload during removal, owned-worker cleanup, task reclamation, cold recovery fencing, and route failures. It independently decodes persisted request headers with `zstd`. Every attempt is retained under `.evidence/` and excluded from Git.

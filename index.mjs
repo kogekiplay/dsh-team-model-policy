@@ -134,6 +134,10 @@ export function apply(ctx, config) {
     };
   };
 
+  ctx.inject(['profileContext', 'agentTeams', 'teamRetirements'], child => child.effect(async () => {
+    const { registerTeamCapacity } = await import('./team-capacity.mjs');
+    return registerTeamCapacity(child);
+  }));
   ctx.inject(['profileContext', 'storageDomain'], child => child.effect(async () => {
     const { registerModelTools } = await import('./model-tools.mjs');
     return await registerModelTools(child, { settings, choices, track });
