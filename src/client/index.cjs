@@ -53,6 +53,11 @@ function apply(ctx) {
       const response = await ctx.remote.commands.execute(sessionId, '/team-remove ' + name, [])
       if (!response.ok) throw new Error(response.error.message)
       if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? 'Team removal command is unavailable')
+    }, async removeCompletedTask(sessionId, taskId, revision) {
+      const response = await ctx.remote.commands.execute(sessionId, '/team-task-remove ' + taskId + ' ' + revision, [])
+      if (!response.ok) throw new Error(response.error.message)
+      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? '已完成任务移除命令不可用。')
+      await ctx.sessions.refreshProjections(sessionId)
     } }),
   }, RetirementTeamAction)))
   const current = createTeamModelPolicyCard({ scope,

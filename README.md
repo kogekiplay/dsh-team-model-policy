@@ -7,7 +7,7 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.7.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.8.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -45,6 +45,16 @@ Member choices persist in a plugin-owned storage domain keyed by the exact Team 
 Removing a route blocks future selections and requests for that route; a request already sent can finish. Removing a teammate also archives its Session with stop activity, filters it from the Team popup and `list_agents`, and rejects both model-side messages and later GUI attempts to resume it. If a stop or task cleanup cannot finish, the state remains `removing` with an actionable error and the Lead can retry. Disabling Subagent model selection blocks future requests in follow mode. Member history remains visible so the Lead can select an allowed recovery route. Fixed mode remains an explicit Host route policy.
 
 The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
+
+## 移除已完成任务 / Remove completed tasks
+
+在 **智能体团队 → 共享任务** 中，已完成的任务卡片显示 **移除**。单击立即执行，**不弹出二次确认**；进行中会禁用按钮并防止重复提交。任务从列表和计数中移除，刷新或重启后保持，原生任务历史保留。
+
+待处理、进行中的任务不显示移除按钮。请求带上所点击任务的 revision，后台再次检查完成状态，避免任务被重新打开后遭到误删。其他任务仍引用它为依赖时，遵循原生 Team 约束并显示原因，不自动修改依赖图。请先移除已完成的后续任务或调整依赖。
+
+UI 使用 `/team-task-remove <task-id> <revision>`，由 Lead 根会话执行；模型可继续使用原生 `team_task_update` 的 `delete` 动作。界面请求和模型动作都使用原生 `agentTeams.updateTask` 与持久化记录，没有新增任务副本或物理删除历史。
+
+Completed task cards offer immediate removal without a confirmation dialog. The Host checks the clicked revision and current completed status before the native delete transition. Native authorization, dependency protection, and history remain intact; failures stay visible on the card. Pending and running tasks have no removal button.
 
 ## 手动清理子智能体 / Manual subagent cleanup
 
@@ -98,6 +108,7 @@ node tests/run-team-access.mjs --verify
 node tests/run-team-access.mjs --ptc --verify
 node tests/run-team-access.mjs --race --verify
 node tests/run-team-access.mjs --race --ptc --verify
+node tests/run-task-removal.mjs
 ```
 
 The integration suite uses `dsh --profile headless`, its real Loader, tools, Team lifecycle and persistence. Only the external LLM adapter is scripted. It checks native baseline behavior, fixed routes, cold recovery, follow-mode default max, explicit off, a mid-session model/effort switch, live teammate removal, the roster command, provider reload during removal, owned-worker cleanup, task reclamation, cold recovery fencing, and route failures. It independently decodes persisted request headers with `zstd`. Every attempt is retained under `.evidence/` and excluded from Git.

@@ -27,6 +27,7 @@ export interface TeamActionInjected {
   /** Open a roster Session from the current conversation. */
   openTeammate: (sessionId: SessionId, childSessionId: SessionId) => void
   removeTeammate: (sessionId: SessionId, name: string) => Promise<void>
+  removeCompletedTask: (sessionId: SessionId, taskId: string, revision: number) => Promise<void>
 }
 
 /** Durable lifecycle overlaid with the member Session's live turn activity. */
@@ -138,10 +139,20 @@ function TeamMemberRow({
 }
 
 /** Task card with a two-line description clamp expanded from a toggle in the meta row. */
-function TaskCard({ task, t }: { task: TeamTask; t: TranslateNS<typeof NS> }) {
+export function TaskCard({ task, t, onRemove }: { task: TeamTask; t: TranslateNS<typeof NS>; onRemove?: (task: TeamTask) => Promise<void> }) {
   const [expanded, setExpanded] = useState(false)
   const [clamped, setClamped] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inFlight = useRef(false)
   const textRef = useRef<HTMLParagraphElement>(null)
+  const remove = async (): Promise<void> => {
+    if (inFlight.current || task.status !== 'completed' || onRemove === undefined) return
+    inFlight.current = true; setDeleting(true); setError(null)
+    try { await onRemove(task) }
+    catch (reason) { setError(t('task.removeFailed', { message: reason instanceof Error ? reason.message : String(reason) })) }
+    finally { inFlight.current = false; setDeleting(false) }
+  }
   useLayoutEffect(() => {
     if (expanded) return
     const paragraph = textRef.current
@@ -155,14 +166,17 @@ function TaskCard({ task, t }: { task: TeamTask; t: TranslateNS<typeof NS> }) {
     return () => { observer.disconnect() }
   }, [task.description, expanded])
   return (
-    <article className={css.task}>
+    <article className={css.task} data-team-task-id={task.id}>
       <div className={css.taskTitle}>
         <strong>{task.subject}</strong>
         <span className={css.taskState}>
           <StateDot state={taskDotState(task)} />
           <span>{t(statusKey(task.status))}</span>
         </span>
+        {task.status === 'completed' && onRemove !== undefined && <button type="button" className={css.removeButton} disabled={deleting}
+          aria-label={t('task.removeAria', { id: task.id })} onClick={() => { void remove() }}>{t(deleting ? 'task.removing' : 'task.remove')}</button>}
       </div>
+      {error !== null && <div className={css.error} role="alert">{error}</div>}
       <p ref={textRef} className={expanded ? undefined : css.clampedDescription}>{task.description}</p>
       <div className={css.meta}>
         {(clamped || expanded) && (
@@ -188,9 +202,9 @@ function TaskCard({ task, t }: { task: TeamTask; t: TranslateNS<typeof NS> }) {
 }
 
 
-/** Render the current Team roster and read-only task board. */
+/** Render the Team roster and shared tasks with direct removal of completed rows. */
 export function TeamAction({
-  sessionId, useSession, useSessions, useSessionStatus, openTeammate, removeTeammate, t,
+  sessionId, useSession, useSessions, useSessionStatus, openTeammate, removeTeammate, removeCompletedTask, t,
 }: TeamActionProps) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -378,7 +392,8 @@ export function TeamAction({
                       <>
                         <h3>{t('tasks')}<span className={css.count}>{team.tasks.length}</span></h3>
                         <div className={css.tasks}>
-                          {team.tasks.map(task => <TaskCard key={task.id} task={task} t={t} />)}
+                          {team.tasks.map(task => <TaskCard key={task.id} task={task} t={t}
+                              onRemove={team.failure === undefined ? task => removeCompletedTask(leadSessionId, task.id, task.revision) : undefined} />)}
                         </div>
                       </>
                     )}

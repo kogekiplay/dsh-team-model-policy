@@ -107,9 +107,14 @@
 }
 
 .taskTitle strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 500;
 }
+
+.taskTitle .removeButton { flex: none; align-self: center; white-space: nowrap; }
 
 .panel h3 {
   display: flex;
