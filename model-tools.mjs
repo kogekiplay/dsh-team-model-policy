@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { authorizeCurrent, listCurrentModels } from './authorization.mjs';
 
 /** Register model-aware creation and next-request switching through the native Team service. */
-export async function registerModelTools(ctx, { settings, choices, track }) {
+export function registerModelTools(ctx, { settings, choices, track }) {
   const require = createRequire(ctx.profileContext.installAnchor);
   const { defineTool } = require('@deepseek-ai/dsh-tools');
   const retirements = () => ctx.get('teamRetirements');
@@ -101,6 +101,10 @@ export async function registerModelTools(ctx, { settings, choices, track }) {
           if (reserved.has(key(caller.root.id, args.target))) throw failure('Teammate creation is still in progress.', 'TEAM_MEMBER_BUSY');
           const route = await routeFor(exec.agent, args, signal);
           await (await choices()).save(caller.root.id, args.target, route);
+          if (settings().mode !== 'follow-subagent') throw failure('The Team switched to a fixed model while saving. The per-member choice is retained for follow mode.', 'TEAM_MODEL_FIXED');
+          authorizeCurrent(ctx, route);
+          const live = ctx.agents.get(row.id);
+          if (live !== undefined) live.model.select(route);
           return { target: args.target, selection: route, applies: 'next-request', wakesTeammate: false };
         });
       },

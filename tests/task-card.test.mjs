@@ -42,13 +42,17 @@ test('a rejected stale or dependency mutation keeps the task and shows its reaso
 test('the actual client inject face sends one versioned command then refreshes the Lead projection',async()=>{
  let registration;vm.runInNewContext(readFileSync(new URL('../lib/client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:{load:r=>{registration=r;}}},queueMicrotask,setTimeout,clearTimeout});
  const plugin=registration.factory(id=>id==='react'?React:id==='react-dom'?require('react-dom'):primitives);
- const seats=[],commands=[],refresh=[];
+ const seats=[],commands=[],refresh=[],events=new Map();let catalogRevision=0;
  const ctx={locale:{bind:()=>key=>key,register:()=>()=>{}},effect:fn=>fn(),on:()=>()=>{},
   slots:{inject:(_name,fn)=>fn(),register:(options,component)=>{seats.push({options,component});return ()=>{};}},
   configForms:{get:()=>({getSnapshot:()=>({status:'ready',writable:true,revision:1,value:{},user:{}}),subscribe:()=>()=>{},mutate:async()=>false}),whileServed:(_names,fn)=>fn()},
   sessions:{refreshProjections:async id=>{refresh.push(id);}},uiWorkspace:{},
-  remote:{$on:()=>()=>{},session:{modelCatalog:async()=>({ok:true,value:{groups:[]}})},commands:{execute:async(...args)=>{commands.push(args);return {ok:true,value:{result:{kind:'success'}}};}}}};
+  remote:{$on:(name,handler)=>{events.set(name,handler);return ()=>events.delete(name);},session:{modelCatalog:async()=>({ok:true,value:{groups:[{id:'test-provider',name:'Provider '+catalogRevision,models:[]}]}})},commands:{execute:async(...args)=>{commands.push(args);return {ok:true,value:{result:{kind:'success'}}};}}}};
  plugin.apply(ctx);
  await seats.find(s=>s.options.id==='agent-team').options.inject().removeCompletedTask('lead-session','task-7',5);
  assert.deepEqual(JSON.parse(JSON.stringify(commands)),[['lead-session','/team-task-remove task-7 5',[]]]);assert.deepEqual(refresh,['lead-session']);
+ const scope=seats.find(s=>s.options.id==='team-model-policy').options.inject().hooks.teamModelPolicyCard;
+ await settle();assert.equal(scope.getSnapshot().provider.choices[0].name,'Provider 0');
+ catalogRevision=1;events.get('llm/models-updated')('test-provider');await settle();
+ assert.equal(scope.getSnapshot().provider.choices[0].name,'Provider 1');scope.dispose();
 });

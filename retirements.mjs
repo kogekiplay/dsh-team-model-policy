@@ -13,10 +13,10 @@ export function retirementDefinition(z) {
   const payload = z.object({ version: z.literal(1), rootId: z.string().min(1), members: z.array(member) }).strict();
   const stateSchema = z.object({ rootId: z.string(), inheritedEventCount: z.number().int().nonnegative(),
     members: z.array(member), failure: z.string().optional() }).strict();
-  return { key: RETIREMENT_PROJECTION, stateVersion: 1, stateSchema,
+  return { key: RETIREMENT_PROJECTION, stateVersion: 2, stateSchema,
     init: (header, inheritedEventCount) => ({ rootId: header.id, inheritedEventCount, members: [] }),
     apply(state, event) {
-      if (state.failure !== undefined || event.type !== RETIREMENT_RECORD || event.seq < state.inheritedEventCount) return state;
+      if (state.failure !== undefined || ![RETIREMENT_RECORD, 'plugin:' + RETIREMENT_RECORD].includes(event.type) || event.seq < state.inheritedEventCount) return state;
       if (event.data?.rootId !== state.rootId) return state;
       try {
         const data = payload.parse(event.data);
@@ -37,10 +37,10 @@ export function subagentRetirementDefinition(z) {
   const member = z.object({ id: z.string().min(1), parentId: z.string().min(1), mode: z.enum(['continuable', 'one-shot', 'unknown', 'external']), category: z.enum(['ordinary', 'team-member', 'external', 'unsupported']), phase: z.enum(['removing', 'removed']), error: z.string().optional() }).strict();
   const payload = z.object({ version: z.literal(1), rootId: z.string().min(1), members: z.array(member) }).strict();
   const stateSchema = z.object({ rootId: z.string(), inheritedEventCount: z.number().int().nonnegative(), members: z.array(member), failure: z.string().optional() }).strict();
-  return { key: SUBAGENT_RETIREMENT_PROJECTION, stateVersion: 1, stateSchema,
+  return { key: SUBAGENT_RETIREMENT_PROJECTION, stateVersion: 2, stateSchema,
     init: (header, inheritedEventCount) => ({ rootId: header.id, inheritedEventCount, members: [] }),
     apply(state, event) {
-      if (state.failure !== undefined || event.type !== SUBAGENT_RETIREMENT_RECORD || event.seq < state.inheritedEventCount) return state;
+      if (state.failure !== undefined || ![SUBAGENT_RETIREMENT_RECORD, 'plugin:' + SUBAGENT_RETIREMENT_RECORD].includes(event.type) || event.seq < state.inheritedEventCount) return state;
       if (event.data?.rootId !== state.rootId) return state;
       try {
         const data = payload.parse(event.data);
@@ -87,18 +87,18 @@ export default class TeamRetirementProvider {
       let registered;
       let subagentRegistered;
       try {
-        registered = self.ctx.sessionProjections.register(retirementDefinition(z));
-        subagentRegistered = self.ctx.sessionProjections.register(subagentRetirementDefinition(z));
+        registered = await self.ctx.sessionProjections.register(retirementDefinition(z));
+        subagentRegistered = await self.ctx.sessionProjections.register(subagentRetirementDefinition(z));
       } catch (error) {
-        if (typeof registered === 'function') registered();
+        await registered?.dispose();
         throw error;
       }
-      self.projection = { stateOf: session => self.ctx.sessionProjections.snapshot(session).values[RETIREMENT_PROJECTION] };
-      self.subagentProjection = { stateOf: session => self.ctx.sessionProjections.snapshot(session).values[SUBAGENT_RETIREMENT_PROJECTION] };
+      self.projection = registered;
+      self.subagentProjection = subagentRegistered;
       self.ctx.effect(function* () {
-        // Synchronous yield preserves disposer identity; async generators await Cordis thenables.
-        if (typeof registered === 'function') yield registered;
-        if (typeof subagentRegistered === 'function') yield subagentRegistered;
+        // Keep the ready handles readable until cleanup settles, including after release.
+        yield () => registered.dispose();
+        yield () => subagentRegistered.dispose();
         yield self.ctx.on('agent/created', async ({ agent, signal }) => {
           const reason = self.blockedReason(agent) ?? await self.storedBlockedReason(agent, signal);
           if (reason !== undefined) throw refusal(reason, 'TEAM_MEMBER_REMOVED');
@@ -176,8 +176,6 @@ export default class TeamRetirementProvider {
           await Promise.allSettled([...self.pending]);
         });
       });
-      if (Object.prototype.toString.call(registered) === '[object Promise]') self.projection = await registered;
-      if (Object.prototype.toString.call(subagentRegistered) === '[object Promise]') self.subagentProjection = await subagentRegistered;
     }
     subagentState(session) {
       const value = this.subagentProjection?.stateOf(session);

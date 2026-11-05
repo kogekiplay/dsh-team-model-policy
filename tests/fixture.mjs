@@ -28,7 +28,7 @@ export function apply(ctx, config) {
   const resolveModel = async (provider, model) => {
     if (!['gpt-6.1-sol', 'deepseek-v4.1-flash', 'glm-5.3'].includes(model)) throw new Error('Unknown audit model: ' + model);
     const effort = model === 'gpt-6.1-sol' ? 'max' : 'off';
-    return { provider, id: model, name: model, reasoning: { efforts: ['max', 'high', 'off'].map(id => ({ id, name: id })), defaultEffort: effort } };
+    return { provider, id: model, name: model, context: { contextWindow: 1_000_000 }, reasoning: { efforts: ['max', 'high', 'off'].map(id => ({ id, name: id })), defaultEffort: effort } };
   };
   const adapter = {
     providerInfo: id => ({ id, name: id }),
@@ -158,8 +158,9 @@ export function apply(ctx, config) {
         const deadline = Date.now() + 10000;
         while (!old.closing && Date.now() < deadline) await new Promise(resolve => setImmediate(resolve));
         if (!old.closing || finished) throw new Error('Reload did not wait for the admitted removal');
-        if (!ctx.get('sessionProjections').snapshot(exec.agent.session).values.teamRetirements) throw new Error('Projection released before admitted cleanup settled');
-        record({ kind: 'reload-barrier', waited: true, projectionAlive: true });
+        const retained = old.projection.stateOf(exec.agent.session);
+        if (!retained.members.some(row => row.name === args.target && row.phase === 'removing')) throw new Error('Retained projection handle lost admitted cleanup state');
+        record({ kind: 'reload-barrier', waited: true, projectionAlive: true, retainedHandle: true });
       } finally { archivePause.release.resolve(); }
       const outcome = await attempt; await restart; archivePause = undefined;
       const current = ctx.get('teamRetirements');
@@ -212,10 +213,9 @@ export function apply(ctx, config) {
       record({ kind: 'saved-policy', ...result }); return result;
     },
   }));
-  ctx.on('agent/request', async ({ agent }, next) => {
-    const proposal = await next();
-    if (ctx.agentTeams.tryMembership(agent)?.role !== 'lead') return proposal;
-    return { ...proposal, provider: 'route-audit', model: 'gpt-6.1-sol', reasoningEffort: config.mode === 'native-follow' ? 'off' : 'max' };
+  ctx.on('agent/created', ({ agent }) => {
+    if (ctx.agentTeams.tryMembership(agent)?.role !== 'lead') return;
+    agent.model.select({ provider: 'route-audit', model: 'gpt-6.1-sol', reasoningEffort: config.mode === 'native-follow' ? 'off' : 'max' });
   });
   ctx.on('tools/result', (exec, result) => {
     if (['list_agents', 'spawn_teammate', 'send_message', 'create_teammate', 'set_teammate_model', 'list_teammate_models', 'audit_model_selection', 'remove_teammate', 'team_task_create', 'team_task_get', 'team_task_update', 'audit_worker_barrier', 'audit_direct_send', 'audit_retirement_state', 'audit_start_owned_job', 'audit_remove_command', 'audit_remove_reload'].includes(exec.name)) {

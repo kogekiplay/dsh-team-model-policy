@@ -19,7 +19,8 @@ fs.writeFileSync(path.join(evidence, 'init.stderr.log'), init.stderr ?? ''); ass
 const overlay = [
  {id:'agent-default-model',config:{provider:'team-access-audit',model:'audit-model',reasoningEffort:'max'}},
  {id:'session-title-llm',disabled:true},{id:'hmr',disabled:true},
- {id:'tools',config:{mode:ptc?'ptc':'native'}},
+ {id:'tool-executor-native',disabled:ptc},
+ {id:'tool-executor-ptc',disabled:!ptc},
  {id:'subagent-model-selection-settings',config:{enabled:true,allowedModels:[{provider:'team-access-audit',model:'audit-model'}]}},
  {id:'tool-subagent-control',disabled:true},
  {insert:[

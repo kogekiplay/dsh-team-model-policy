@@ -63,6 +63,7 @@ function apply(ctx) {
   const current = createTeamModelPolicyCard({ scope,
     readCatalog: () => ctx.remote.session.modelCatalog().then(response => response.ok ? response.value : undefined), t })
   ctx.effect(() => ctx.remote.$on('llm/adapters-updated', () => { void current.refreshCatalog() }))
+  ctx.effect(() => ctx.remote.$on('llm/models-updated', () => { void current.refreshCatalog() }))
   ctx.effect(() => ctx.remote.$on('settings/document-updated', () => { void current.refreshCatalog() }))
   ctx.effect(() => ctx.on('connection/reset', () => { void current.refreshCatalog() }))
   ctx.effect(() => () => { current.dispose() })

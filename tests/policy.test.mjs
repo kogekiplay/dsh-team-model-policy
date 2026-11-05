@@ -8,6 +8,7 @@ const anchor = process.env.DSH_TEST_INSTALL_ANCHOR ?? (existsSync(packaged) ? pa
 const { Context } = createRequire(anchor)('@deepseek-ai/cordis');
 const route = { provider: 'audit', model: 'flash' };
 const policy = { apply, inject, name };
+const model = initial => { let value = initial; return { current: () => value === undefined ? undefined : { ...value }, select: next => { value = { ...next }; } }; };
 function harness(resolveCallConfig = async choice => choice) {
   const ctx = new Context();
   const agents = new Map();
@@ -16,10 +17,12 @@ function harness(resolveCallConfig = async choice => choice) {
   const root = { id: 'lead', options: { provider: 'audit', model: 'stale' }, session: { inheritedEventCount: 0, snapshotEvents: () => [header('audit', 'gpt')] } };
   const child = { id: 'child', options: { provider: 'audit', model: 'gpt' }, session: { inheritedEventCount: 1,
     snapshotEvents: offset => [header('audit', 'gpt'), header('audit', 'flash')].slice(offset) } };
+  root.model = model({ provider: 'audit', model: 'gpt', reasoningEffort: 'max' });
+  child.model = model({ provider: 'audit', model: 'gpt', reasoningEffort: 'max' });
   agents.set(root.id, root); agents.set(child.id, child);
   members.push({ id: root.id, name: 'lead', role: 'lead', status: 'running' }, { id: child.id, name: 'worker', role: 'teammate', status: 'inactive' });
-  ctx.provide('agents', { get: id => agents.get(id) });
-  ctx.provide('agentTeams', { tryMembership: a => a === child ? { role: 'teammate' } : a === root ? { role: 'lead' } : undefined,
+  ctx.provide('agents', { get: id => agents.get(id), list: () => [...agents.values()] });
+  ctx.provide('agentTeams', { tryMembership: a => a === child ? { role: 'teammate', root, name: 'worker' } : a === root ? { role: 'lead', root, name: 'lead' } : undefined,
     membership: a => ({ root, name: a === child ? 'worker' : 'lead', role: a === child ? 'teammate' : 'lead' }),
     listMembers: () => members });
   ctx.provide('llm', { resolveCallConfig });
@@ -43,12 +46,45 @@ test('invalid configuration is refused before effects are registered', () => {
   }
 });
 
-test('request policy replaces teammate route and clears inherited effort; other agents retain next()', async t => {
+test('creation records the teammate choice before preparation without changing request controls or the Lead', async t => {
   const h = harness(); t.after(() => h.ctx.fiber.dispose());
   await h.ctx.plugin(policy, route);
-  assert.deepEqual(await invokeRequest(h.ctx, h.child), { ...route, maxTokens: 17 });
-  assert.equal((await invokeRequest(h.ctx, h.root)).model, 'gpt');
+  await h.ctx.serial('agent/created', { agent: h.child });
+  assert.deepEqual(h.child.model.current(), route);
+  assert.deepEqual(await invokeRequest(h.ctx, h.child), { provider: 'audit', model: 'gpt', reasoningEffort: 'max', maxTokens: 17 });
+  assert.equal(h.root.model.current().model, 'gpt');
   assert.equal((await invokeRequest(h.ctx, { id: 'ordinary' })).model, 'gpt');
+});
+
+test('settings select the next model without altering the selection already captured for a step', async t => {
+  const h = harness(); t.after(() => h.ctx.fiber.dispose());
+  const config = { mode: 'fixed', ...route };
+  await h.ctx.plugin(policy, config);
+  await h.ctx.serial('agent/created', { agent: h.child });
+  const captured = Object.freeze(h.child.model.current());
+  config.model = 'next'; config.reasoningEffort = 'off';
+  h.ctx.emit('settings/document-updated', 'team-model-policy', 2);
+  assert.deepEqual(h.child.model.current(), { provider: 'audit', model: 'next', reasoningEffort: 'off' });
+  const decision = { kind: 'enter', messages: [], startsRequestSeries: true };
+  const result = await h.ctx.waterfall('agent/pre-step', { agent: h.child, signal: new AbortController().signal, modelSelection: captured }, async () => decision);
+  assert.equal(result, decision); assert.deepEqual(captured, route);
+  assert.equal(h.child.model.current().model, 'next'); assert.equal(h.root.model.current().model, 'gpt');
+});
+
+test('direct model overrides cannot bypass the fixed Team policy', async t => {
+  const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
+  await h.ctx.serial('agent/created', { agent: h.child });
+  h.child.model.select({ provider: 'audit', model: 'unexpected' });
+  const captured = Object.freeze(h.child.model.current());
+  await assert.rejects(h.ctx.waterfall('agent/pre-step', { agent: h.child, signal: new AbortController().signal, modelSelection: captured }, async () => ({ kind: 'enter', messages: [] })), { code: 'TEAM_MODEL_POLICY_MISMATCH' });
+  assert.deepEqual(h.child.model.current(), route); assert.equal(captured.model, 'unexpected');
+});
+
+test('model preflight never materializes adapter-default effort into the explicit selection', async t => {
+  const h = harness(async choice => ({ ...choice, reasoningEffort: choice.reasoningEffort ?? 'high' }));
+  t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
+  await h.ctx.serial('agent/created', { agent: h.child });
+  assert.deepEqual(h.child.model.current(), route); assert.equal('reasoningEffort' in h.child.model.current(), false);
 });
 
 test('invalid adapter routes and unsupported model APIs fail creation', async t => {
@@ -98,7 +134,8 @@ test('unload waits for in-flight preflight to settle and removes effects', async
   assert.equal(h.sections.size, 0);
   assert.equal((await invokeRequest(h.ctx, h.child)).model, 'gpt');
   const again = await h.ctx.plugin(policy, route);
-  assert.equal((await invokeRequest(h.ctx, h.child)).model, 'flash');
+  await h.ctx.serial('agent/created', { agent: h.child });
+  assert.equal(h.child.model.current().model, 'flash');
   await again.dispose();
 });
 

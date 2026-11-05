@@ -12,7 +12,9 @@
  *   `createRequire(ctx.profileContext.installAnchor)`, the same anchor the host
  *   publishes, so persistence and schema validation are the real medium path.
  *
- * `node --test` without that runtime cannot read app.asar and is not supported.
+ * An explicit DSH_TEST_INSTALL_ANCHOR may instead select unpacked target-version
+ * npm packages; ordinary Node then exercises those same real storage services.
+ * Without that explicit anchor, the Desktop path requires Electron's asar loader.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,11 +39,11 @@ const FLASH = Object.freeze({ provider: 'kurumiai', model: 'deepseek-v4.1-flash'
 const OTHER = Object.freeze({ provider: 'kennedy', model: 'deepseek-v4.1-flash' })
 
 /**
- * Honor the desktop runtime requirement instead of passing on a weaker path.
+ * Honor the selected package runtime; the default Desktop anchor needs asar support.
  * @returns the runtime identifier of the executing binary.
  */
 function requireAsarRuntime() {
-  if (typeof process.versions.electron !== 'string') {
+  if (typeof process.versions.electron !== 'string' && process.env.DSH_TEST_INSTALL_ANCHOR === undefined) {
     throw new Error('run this suite as ELECTRON_RUN_AS_NODE=1 "<app>/Contents/MacOS/DeepSeek Harness" --test tests/choices.test.mjs')
   }
 }

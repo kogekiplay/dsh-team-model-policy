@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import Provider from '../retirements.mjs';
+import Provider, { RETIREMENT_RECORD, SUBAGENT_RETIREMENT_RECORD } from '../retirements.mjs';
 const anchor = process.env.DSH_TEST_INSTALL_ANCHOR ?? '/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/package.json';
 const require = createRequire(anchor);
 const { Context } = require('@deepseek-ai/cordis');
@@ -20,7 +20,7 @@ async function harness(t) {
     { kind: 'child', id: 'grand', parentId: 'target', depth: 2, mode: 'continuable', activity: 'inactive', hasChildren: false },
     { kind: 'child', id: 'sibling', parentId: 'root', depth: 1, mode: 'continuable', activity: 'inactive', hasChildren: false },
   ];
-  const projection = { register(d) { definitions.set(d.key, d); return () => definitions.delete(d.key); }, snapshot(s) {
+  const projection = { async register(d) { definitions.set(d.key, d); return { stateOf: s => projection.snapshot(s).values[d.key], dispose: async () => { definitions.delete(d.key); } }; }, snapshot(s) {
     const values = { agentTeam: { members: teamRows.get(s.id) ?? [], tasks: [] } };
     for (const d of definitions.values()) { let state = d.init(s.header, s.inheritedEventCount); for (const e of s.snapshotEvents()) state = d.apply(state, e); values[d.key] = d.wire.view(state); }
     return { values };
@@ -93,6 +93,23 @@ test('Team IDs route to existing task-reclaiming removal without ordinary record
   const result = await h.service.removeSubagent(h.root, 'target', h.signal);
   assert.deepEqual(called, { owner: 'root', target: 'worker' }); assert.equal(result.kind, 'teammate');
   assert.deepEqual(h.service.subagentState(h.root.session).members, []); assert.deepEqual(h.archive, []);
+});
+
+test('migrated retirement records prevent restoring an unarchived child and its nested descendants', async t => {
+  const h = await harness(t);
+  const events = [
+    { type: 'plugin:' + RETIREMENT_RECORD, seq: 0, time: 1, ignorable: true, data: { version: 1, rootId: 'root', members: [{ id: 'sibling', name: 'old-team-worker', phase: 'removed', releasedTasks: [] }] } },
+    { type: 'plugin:' + SUBAGENT_RETIREMENT_RECORD, seq: 1, time: 2, ignorable: true, data: { version: 1, rootId: 'root', members: [{ id: 'target', parentId: 'root', mode: 'continuable', category: 'ordinary', phase: 'removed' }] } },
+  ];
+  h.root.session = Session.create('root', events, { version: 4, id: 'root', createdAt: 0, isSeeded: false });
+  h.sessions.set('root', h.root.session);
+  assert.deepEqual(h.archive, [], 'archive state alone must not be the resurrection guard');
+  assert.match(h.service.blockedReason(h.target), /removed/);
+  assert.match(h.service.blockedReason(h.grand), /removed/);
+  assert.match(h.service.blockedReason(h.sibling), /removed/);
+  assert.match(await h.service.storedBlockedReason(h.grand, h.signal), /removed/);
+  assert.throws(() => h.service.assertParent(h.target), { code: 'SUBAGENT_REMOVED' });
+  assert.deepEqual((await h.service.listManageableSubagents(h.root, h.signal)).children, []);
 });
 
 test('slash command and tool share the Host operation and reject stale parent identities', async t => {

@@ -11,7 +11,7 @@ export function capacityOf(limit, rows, retirement) {
   return { limit, occupied: members.length - released, released, historical: members.length, ceiling };
 }
 
-/** rc.5 adapter: use a read-only per-call roster view, never mutate the shared native limit/state. */
+/** 0.2.2-rc.1 adapter: use a read-only per-call roster view, never mutate the shared native limit/state. */
 export function capacitySpawn(native, retirements, dispatch) {
   const roster = native.roster;
   const limit = roster?.maxMembers;
@@ -43,7 +43,7 @@ export function capacitySpawn(native, retirements, dispatch) {
 /** Install/release the public creation adapter without reloading the native Team service. */
 export function registerTeamCapacity(ctx) {
   const require = createRequire(ctx.profileContext.installAnchor);
-  if (require('@deepseek-ai/dsh-experimental-agent-team/package.json').version !== '0.2.1-rc.5') throw new Error('This Team capacity adapter requires DSH 0.2.1-rc.5.');
+  if (require('@deepseek-ai/dsh-experimental-agent-team/package.json').version !== '0.2.2-rc.1') throw new Error('This Team capacity adapter requires DSH 0.2.2-rc.1.');
   const native = ctx.agentTeams;
   const before = Object.getOwnPropertyDescriptor(native, 'spawnTeammate');
   if (before !== undefined) throw new Error('Another Team creation adapter is already installed; refusing to bypass it.');

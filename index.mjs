@@ -1,6 +1,9 @@
 /** Team-specific model policy and effective-model reporting. */
 import { readSettings } from './settings.mjs';
 import { authorizeCurrent, currentAuthorization } from './authorization.mjs';
+import { registerModelTools } from './model-tools.mjs';
+import { registerTeamCapacity } from './team-capacity.mjs';
+import { registerTeammateAccess } from './teammate-access.mjs';
 export { Config } from './settings.mjs';
 export const name = 'team-model-policy';
 export const inject = ['agents', 'agentTeams', 'llm', 'tools', 'systemPrompt', 'sessionPersistence', 'teamRetirements'];
@@ -44,10 +47,13 @@ export function apply(ctx, config) {
   const settings = () => readSettings(config);
   let choiceStore;
   let choiceModule;
+  let readyChoices;
+  let settingsEpoch = 0;
   const choices = async () => {
     choiceModule ??= import('./choices.mjs');
     choiceStore ??= choiceModule.then(module => module.createChoices({ storageDomain: ctx.get('storageDomain'), profileContext: ctx.get('profileContext') }));
-    return await choiceStore;
+    readyChoices = await choiceStore;
+    return readyChoices;
   };
   const configuredRoute = async (caller, member, validate = true) => {
     const state = settings();
@@ -66,8 +72,8 @@ export function apply(ctx, config) {
 
   const teammate = agent => agent !== undefined && ctx.agentTeams.tryMembership(agent)?.role === 'teammate';
   const checkRuntime = agent => {
-    if (agent.model !== undefined) {
-      throw new TeamModelPolicyError('This plugin requires the request-waterfall DSH runtime; Agent.model runtimes need a newer plugin.', 'UNSUPPORTED_RUNTIME');
+    if (typeof agent.model?.current !== 'function' || typeof agent.model?.select !== 'function') {
+      throw new TeamModelPolicyError('This plugin requires DSH 0.2.2-rc.1 with Agent.model selection.', 'UNSUPPORTED_RUNTIME');
     }
   };
   const track = (signal, body) => {
@@ -92,6 +98,27 @@ export function apply(ctx, config) {
     }
     return resolved;
   };
+  const sameSelection = (left, right) => left?.provider === right?.provider && left?.model === right?.model && left?.reasoningEffort === right?.reasoningEffort;
+  const configuredRouteNow = member => {
+    const state = settings();
+    if (state.mode === 'fixed') return parseRoute({ provider: state.provider, model: state.model,
+      ...(state.reasoningEffort ? { reasoningEffort: state.reasoningEffort } : {}) });
+    const saved = readyChoices?.load(member.root.id, member.name);
+    return saved === undefined ? undefined : authorizeCurrent(ctx, { ...saved, reasoningEffort: saved.reasoningEffort ?? state.defaultReasoningEffort });
+  };
+  const synchronizeSelections = () => {
+    for (const agent of ctx.agents.list?.() ?? []) {
+      const member = ctx.agentTeams.tryMembership(agent);
+      if (member?.role !== 'teammate') continue;
+      try {
+        ctx.teamRetirements.assertActive?.(member.root, member.name);
+        checkRuntime(agent);
+        const route = configuredRouteNow(member);
+        if (route !== undefined) agent.model.select(route);
+      } catch (error) { ctx.logger.warn('Teammate model update deferred; step validation will refuse invalid choices: ' + String(error)); }
+    }
+  };
+  ctx.on('settings/document-updated', () => { settingsEpoch += 1; synchronizeSelections(); });
   const lastRequest = events => {
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type === 'request/header') return events[i].data.header.config;
@@ -116,7 +143,7 @@ export function apply(ctx, config) {
       }
     }
     const { model: _oldModel, ...rest } = row;
-    const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member, false) : live?.options;
+    const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member, false) : live?.model?.current() ?? live?.options;
     const selection = actual ?? planned;
     const label = planned === undefined ? '' : planned.provider + '/' + planned.model;
     const policy = settings().mode === 'follow-subagent' ? currentAuthorization(ctx) : undefined;
@@ -134,18 +161,15 @@ export function apply(ctx, config) {
     };
   };
 
-  ctx.inject(['profileContext', 'agentTeams', 'teamRetirements'], child => child.effect(async () => {
-    const { registerTeamCapacity } = await import('./team-capacity.mjs');
-    return registerTeamCapacity(child);
+  ctx.inject(['profileContext', 'agentTeams', 'teamRetirements'], child => child.effect(() => registerTeamCapacity(child)));
+  ctx.inject(['profileContext', 'storageDomain'], child => child.effect(() => {
+    const dispose = registerModelTools(child, { settings, choices, track });
+    // Register tools before warming storage; existing members are selected only after it is ready.
+    void track(undefined, async signal => { await choices(); signal.throwIfAborted(); synchronizeSelections(); })
+      .catch(error => { if (!closed) child.logger.warn('Cannot initialize teammate choices: ' + String(error)); });
+    return dispose;
   }));
-  ctx.inject(['profileContext', 'storageDomain'], child => child.effect(async () => {
-    const { registerModelTools } = await import('./model-tools.mjs');
-    return await registerModelTools(child, { settings, choices, track });
-  }));
-  ctx.inject(['profileContext', 'sandboxPolicy', 'approval'], child => child.effect(async () => {
-    const { registerTeammateAccess } = await import('./teammate-access.mjs');
-    return registerTeammateAccess(child);
-  }));
+  ctx.inject(['profileContext', 'sandboxPolicy', 'approval'], child => child.effect(() => registerTeammateAccess(child)));
 
   ctx.effect(function* () {
     yield ctx.on('agent/created', async ({ agent, signal }) => {
@@ -164,33 +188,36 @@ export function apply(ctx, config) {
       checkRuntime(agent);
       return track(signal, async linked => {
         const membership = ctx.agentTeams.membership(agent);
-        const route = await configuredRoute(agent, membership);
-        if (route !== undefined) await preflight(route, linked);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const epoch = settingsEpoch;
+          const planned = await configuredRoute(agent, membership);
+          const current = agent.model.current();
+          const route = planned ?? (lastRequest(agent.session.snapshotEvents(agent.session.inheritedEventCount)) === undefined
+            ? { ...current, reasoningEffort: settings().defaultReasoningEffort } : current);
+          if (!route?.provider || !route?.model) throw new TeamModelPolicyError('The teammate has no model selection.', 'INVALID_CONFIG');
+          await preflight(route, linked);
+          if (epoch !== settingsEpoch) continue;
+          agent.model.select(route);
+          return;
+        }
+        throw new TeamModelPolicyError('Team model settings changed repeatedly during initialization; retry after saving them.', 'TEAM_MODEL_SETTINGS_CHANGED');
       });
     });
-    yield ctx.on('agent/request', ({ agent, signal }, next) => {
+    yield ctx.on('agent/pre-step', ({ agent, signal, modelSelection }, next) => {
       if (!teammate(agent)) return next();
       checkRuntime(agent);
       return track(signal, async linked => {
-        const original = await next();
-        linked.throwIfAborted();
+        // Selection was frozen before this hook. Validate it; never replace or revert it.
         const membership = ctx.agentTeams.membership(agent);
-        const route = await configuredRoute(agent, membership);
-        if (route === undefined) {
-          if (lastRequest(agent.session.snapshotEvents(agent.session.inheritedEventCount)) === undefined) {
-            return await preflight({ ...original, reasoningEffort: settings().defaultReasoningEffort }, linked);
-          }
-          authorizeCurrent(ctx, original);
-          return original;
+        await configuredRoute(agent, membership);
+        const captured = modelSelection ?? agent.model.current();
+        const planned = configuredRouteNow(membership);
+        if (planned !== undefined && !sameSelection(captured, planned) && !sameSelection(agent.model.current(), planned)) {
+          agent.model.select(planned);
+          throw new TeamModelPolicyError('The prepared model conflicts with the Team policy. The next selection was restored; retry without overriding the teammate model directly.', 'TEAM_MODEL_POLICY_MISMATCH');
         }
-        const resolved = await preflight(route, linked);
-        const { reasoningEffort: _oldEffort, ...controls } = original;
-        return {
-          ...controls,
-          provider: resolved.provider,
-          model: resolved.model,
-          ...(route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort }),
-        };
+        await preflight(captured, linked);
+        return await next();
       });
     }, { prepend: true });
     yield ctx.on('tools/post-execute', (exec, result, next) => {

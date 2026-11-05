@@ -4,10 +4,10 @@ Independent DeepSeek Harness plugin with a **Team models / 团队模型** config
 
 ## Install
 
-Upgrade DSH to **0.2.1-rc.5**, then install this public URL in DSH's Plugins page:
+Upgrade DSH to **0.2.2-rc.1**, then install this public URL in DSH's Plugins page:
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.9.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.10.0.tar.gz
 ```
 
 The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
@@ -52,9 +52,9 @@ The corrected `list_agents` and native creation results read each member's own r
 
 只有完整退队且没有清理错误的记录才能释放名额。未运行、准备中、失败但尚未手动移除、移除中或移除失败的成员仍占名额。历史、任务回收和归档保持原样，旧名字仍永久保留，不能复用。
 
-rc.5 的原生上限按历史名册计数且没有退队计数接口。本插件适配创建入口，在每次原生创建事务中使用只读的容量视图，按成功退队记录抵扣历史占位；不修改共享的原生配置、名册、Session 文件或 Team phase，也不重载原生 Team 服务。原生事务继续串行校验并发创建，所以一个空位只允许一个请求成功。禁用本插件后恢复原生历史总数上限。
+0.2.2-rc.1 的原生上限仍按历史名册计数且没有退队计数接口。本插件适配创建入口，在每次原生创建事务中使用只读的容量视图，按成功退队记录抵扣历史占位；不修改共享的原生配置、名册、Session 文件或 Team phase，也不重载原生 Team 服务。原生事务继续串行校验并发创建，所以一个空位只允许一个请求成功。禁用本插件后恢复原生历史总数上限。
 
-`maxMembers` remains the configured limit, interpreted while the plugin is active as unreleased teammates rather than all historical names. Only committed successful retirement earns capacity credit. Both creation tools reuse the native roster implementation and serialized transaction through an rc.5-specific, per-call read-only view; the shared native limit and full historical roster remain unchanged. Retired names remain reserved, failed/removing entries still count until cleanup succeeds, and disabling the plugin restores native historical-limit behavior.
+`maxMembers` remains the configured limit, interpreted while the plugin is active as unreleased teammates rather than all historical names. Only committed successful retirement earns capacity credit. Both creation tools reuse the native roster implementation and serialized transaction through a 0.2.2-rc.1-specific, per-call read-only view; the shared native limit and full historical roster remain unchanged. Retired names remain reserved, failed/removing entries still count until cleanup succeeds, and disabling the plugin restores native historical-limit behavior.
 
 ## 移除已完成任务 / Remove completed tasks
 
@@ -99,11 +99,17 @@ The Host policy, retirement service, and browser settings are separate bundle en
 
 ## Supported DSH version
 
-This release supports **DSH 0.2.1-rc.5 only**. Plugin releases track DSH updates: each release targets the current verified DSH version, and older DSH versions are not maintained. Upgrade DSH to the declared version before installing the matching plugin release.
+This release supports **DSH 0.2.2-rc.1 only**. Plugin releases track DSH updates: each release targets the current verified DSH version, and older DSH versions are not maintained. Upgrade DSH to the declared version before installing the matching plugin release.
 
-本插件随 DSH 更新。本版仅支持 **DSH 0.2.1-rc.5**，后续版本针对新的 DSH 版本验证和发布，不保留旧版兼容范围。请先升级 DSH，再安装对应的插件版本。
+本插件随 DSH 更新。本版仅支持 **DSH 0.2.2-rc.1**，后续版本针对新的 DSH 版本验证和发布，不保留旧版兼容范围。请先升级 DSH，再安装对应的插件版本。
 
-The existing 12 Loader/headless scenarios were verified against the official 0.2.1-rc.5 npm runtime. Ordinary-subagent cleanup has additional isolated lifecycle and real React component tests. Required Client exports and contracts were checked; Desktop screenshot-level verification is reported separately from automated tests. Runtimes exposing an unsupported `Agent.model` API are refused when a policy would reroute a teammate. This is an independent community plugin, not an official DeepSeek package.
+Version 0.10.0 targets the official **0.2.2-rc.1** runtime. Model choices now use `agent.model.select()` before step preparation; the plugin no longer changes provider, model or reasoning effort in the deprecated `agent/request` hook. The captured selection is validated without replacing it, so a later switch applies to the next step. Client model choices refresh on the new `llm/models-updated` event. Projection registrations are awaited and their ready handles remain readable throughout cleanup and reload.
+
+Existing Team and ordinary-subagent retirement records survive the official V3→V4 migration, including the migrated plugin event names. Projection version 2 invalidates older empty checkpoints and rebuilds from the retained log. Canonical writes, historical names and Session files are preserved; no Team phase is fabricated. New and old-format removal records can coexist.
+
+本版适配新模型选择接口、投影 handle 和模型目录刷新事件，并保留旧会话迁移后的退队/清理记录，避免已移除成员再次出现。新版只支持本次目标运行时，升级 DSH 后再安装本版插件。
+
+Real Loader/headless scenarios cover routing, dynamic authorization, switching, native/PTC permission sharing, task removal, capacity reuse, ordinary-subagent cleanup and cold recovery against the official target npm packages. The migration suite uses the official V3→V4 converter and target projection cache. Required Client exports and contracts were checked; Electron Desktop screenshot-level verification remains separate until the application is upgraded. This is an independent community plugin, not an official DeepSeek package.
 
 Disabling the component removes listeners, prompt contributions and tools after owned operations settle. Retired child Sessions remain archived after disablement; the native historical roster becomes visible when the popup replacement is disabled. Re-enable the plugin to restore its filtered roster. The retirement service stop budget is configurable as `jobStopTimeoutMs` under `team-member-retirements` (default 30000 ms). It preserves recorded requests and choices. Existing Sessions can retain their last recorded route after disablement; use a model picker or choose a new route explicitly.
 
@@ -114,6 +120,7 @@ node src/client/build.cjs --check
 node --test tests/client.test.mjs
 ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/policy.test.mjs tests/choices.test.mjs
 node tests/run-integration.mjs
+node tests/run-subagent-integration.mjs
 node tests/run-team-access.mjs --verify
 node tests/run-team-access.mjs --ptc --verify
 node tests/run-team-access.mjs --race --verify
