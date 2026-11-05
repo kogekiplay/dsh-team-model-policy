@@ -1,89 +1,135 @@
-# DSH team model policy
+# 团队模型策略
 
-Independent DeepSeek Harness plugin with a **Team models / 团队模型** configuration page.
+这是独立的 DeepSeek Harness 插件，提供 **团队模型设置、成员权限跟随、子智能体清理和已完成任务移除**。它是社区插件，采用 MIT 许可证。
 
-## Install
+## 安装
 
-Upgrade DSH to **0.2.2-rc.1**, then install this public URL in DSH's Plugins page:
+本版仅支持 **DSH 0.2.2-rc.1**。先升级 DSH，再在“插件”页面通过以下公开地址安装：
 
 ```text
-https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.10.0.tar.gz
+https://github.com/kogekiplay/dsh-team-model-policy/archive/refs/tags/v0.10.1.tar.gz
 ```
 
-The package ships the built browser module. No install scripts or local build are needed. Refresh the existing GUI after an upgrade.
+安装包已包含构建好的界面资源，不需要安装脚本或本地编译。升级后重新打开插件详情；如果已打开的界面仍显示旧内容，刷新当前 DSH 窗口即可。
 
-## Configure
+## 配置团队模型
 
-Open **Settings → Team models / 设置 → 团队模型** in the left navigation. Select and save one mode:
+打开 **设置 → 团队模型**，选择模式后保存：
 
-- **Follow subagent model settings / 跟随子智能体模型设置**: the Lead chooses an authorized model for each teammate. The latest saved Subagent allowlist is authoritative, including for an existing Team. Unspecified reasoning effort defaults to **max**. Unsupported effort fails visibly, without falling back to disabled thinking.
-- **Fixed model / 固定模型**: all named teammates use the selected provider, model and effort. An empty fixed effort follows that model's own default. Per-member switches are refused while this mode is active.
+- **跟随子智能体模型设置**：Lead 为每名队友选择已授权的模型。子智能体设置中最新保存的勾选列表立即生效，已有团队无需重开主会话。未指定推理强度时使用保存的默认值，初始为 **最高（max）**；模型不支持该强度时明确报错。
+- **固定模型**：所有命名队友统一使用所选提供方、模型和推理强度。强度留空时使用该模型自身的默认值；此模式下不能逐个队友切换模型。
 
-The follow-mode default reasoning effort is editable on this page: max (initial default), high, medium, low, or off. Save the choice to apply it when the Lead leaves effort unspecified. The two modes appear as selection cards. The page uses DSH’s shared save form, adapts to narrow windows, and follows the active light or dark theme. Changing the model or reasoning effort affects the next model request. A request already sent continues unchanged. Explicit `off` remains off. The Lead's route is unchanged.
+跟随模式的默认推理强度可选 **最高（max）、高（high）、中（medium）、低（low）、关闭思考（off）**。保存后，在 Lead 没有指定强度时使用该值；显式选择 `off` 会保持关闭思考。
 
-## 团队工具与权限 / Teammate capabilities and permissions
+模型或推理强度变更从下一步模型请求生效，已准备或发出的请求继续使用原选择。Lead 自身的模型不会被团队模型设置改变。页面使用 DSH 的统一保存表单，支持窄窗口和浅色、深色主题。
 
-命名的 **Team 成员**通过原生创建流程继承 Lead 的能力组合。普通模式下可直接使用当前工具列表中的内置工具；PTC 模式下使用 `run_code` 中的 `tools.*` SDK。SDK 声明不是可以独立调用的工具名称。
+取消某条“提供方 + 模型”授权后，该组合不能再被选择或用于后续请求；其他提供方中的同名模型不受影响。请先在“子智能体”设置中保存授权，再让 Lead 重新获取可用模型。
 
-从 v0.7.0 起，Team 成员的**常驻沙箱模式与审批策略跟随当前 Lead**：创建、恢复、模型步骤及工具派发时校验并同步，Lead 权限变更也会通知在线成员。Lead 放宽权限后已有成员无需重新创建；Lead 收紧为只读后，后续写入会被拦截。权限变化按原生事件追加在成员自己的日志中，保留执行身份及历史。请在 Lead 会话中调整共享权限，成员单独调整的值会在同步时恢复为 Lead 的值。
+## 主会话可用工具（Lead）
 
-这只同步 Lead 的常驻授权，不复制单次审批产生的临时授权，不扩大工作区边界，也不把队员冒充为 Lead。普通 `subagent`/`subagent_fork` 继续使用其创建时的独立授权快照。需要直接人类交互、目标管理或 Lead 身份的操作仍交给 Lead，插件的 Lead 专用工具不会在队员的全局工具列表中暴露；原生服务的角色与审批校验继续生效。禁用本插件后不再持续同步，已有日志中的最后权限值保留。
+| 工具 | 用途 |
+|---|---|
+| `list_teammate_models` | 获取当前授权的提供方和模型；指定提供方及准确模型后，可查询支持的推理强度。 |
+| `create_teammate` | 创建队友，并指定提供方、模型和可选的 `reasoning_effort`。创建前会检查授权和模型支持情况。 |
+| `set_teammate_model` | 修改既有队友下一步使用的模型和强度，不唤醒队友，也不中断当前请求。 |
+| `remove_teammate` | 移除命名队友，停止其工作和后台作业，回收未完成任务，并保留历史。仅 Lead 可执行。 |
+| `list_manageable_subagents` | 查看可手动清理的普通子智能体、团队成员及其后代，返回准确的会话 ID、父会话、类型和活动状态。 |
+| `remove_subagent` | 按会话 ID 移除子智能体或子树。目标是团队成员时，自动使用带任务回收的退队流程。 |
 
-Named Team members retain the native inherited tool composition. Native mode uses advertised tools directly; PTC uses generated SDK bindings inside `run_code`. The Host mirrors the exact live Lead's standing sandbox and approval settings at creation/resume, policy changes, model steps, and tool dispatch. Tightening and loosening both propagate; ordinary delegated children keep their original policy snapshots. Only canonical permission setters are used, one-shot grants do not transfer, immutable workspace boundaries are checked, and caller identity is preserved. Human-only and Lead-only actions remain subject to native restrictions.
+原生 `spawn_teammate` 仍可用。跟随模式中，如果没有保存独立模型选择，则保留原生继承方式；需要指定不同模型时使用 `create_teammate`。新上下文与继承上下文两种创建方式，仍由 DSH 的团队和子会话服务管理。
 
-## Lead tools
+例如，可以让 Lead：“重新获取最新可用模型，把 reviewer 切换到某提供方的指定模型，推理强度设为 max。”Lead 应先获取最新授权列表，再执行切换。
 
-- `list_teammate_models`: refreshes currently authorized providers and models from the live Subagent settings. Supply a provider to list models, and an exact provider/model to inspect supported reasoning efforts. No new main Session is needed.
-- `create_teammate`: supplies the native Team creation fields plus `provider`, `model` and optional `reasoning_effort`. It validates authorization and adapter support before saving the choice and calling the native Team service. Omitted effort uses the configured follow default, initially max.
-- `set_teammate_model`: changes an existing teammate's next model and effort. It neither wakes the teammate nor interrupts its current request.
-- `remove_teammate`: Lead-only operation that durably removes a named teammate, stops its current work and owned background jobs, returns unfinished tasks to the unassigned board, and keeps its conversation history. The name remains reserved and cannot be reused. In the Team popup, each teammate also has a Remove action with confirmation. The same operation is available as `/team-remove <teammate-name>` without an LLM request.
+每名队友的模型选择按“团队根会话 + 队友名称”独立保存，重启后仍可恢复。成员列表报告成员自身实际发出的模型请求，不把继承上下文中的父会话请求误认为成员请求；尚未发出请求或模型选择待生效时，会提供说明。
 
-The original `spawn_teammate` remains available. In follow mode, omitting a per-member choice retains native inheritance. Use `create_teammate` when selecting a different model. Both fresh and fork creation remain owned by DSH's Team and continuation services.
+## 团队工具与权限
 
-Member choices persist in a plugin-owned storage domain keyed by the exact Team root and teammate name. They survive cold recovery. The plugin does not rewrite Team events or creation descriptors. Actual requests remain recorded in `request/header`.
+命名的 **团队成员**通过原生创建流程继承 Lead 的能力组合。普通模式下直接使用当前工具列表中的内置工具；PTC 模式下通过 `run_code` 内的 `tools.*` 调用。程序内的工具声明不是独立的模型工具名称。
 
-Removing a route blocks future selections and requests for that route; a request already sent can finish. Removing a teammate also archives its Session with stop activity, filters it from the Team popup and `list_agents`, and rejects both model-side messages and later GUI attempts to resume it. If a stop or task cleanup cannot finish, the state remains `removing` with an actionable error and the Lead can retry. Disabling Subagent model selection blocks future requests in follow mode. Member history remains visible so the Lead can select an allowed recovery route. Fixed mode remains an explicit Host route policy.
+团队成员的**常驻沙箱模式和审批策略跟随当前 Lead**。创建、恢复、模型步骤和工具执行时会校验并同步，Lead 权限变化也会通知在线成员：
 
-The corrected `list_agents` and native creation results read each member's own request history, excluding inherited fork headers. Diagnostics distinguish historical requests from pending choices. The browser's native Team action model badge is outside this plugin's scope.
+- Lead 放宽权限后，已有成员无需重新创建。
+- Lead 收紧为只读后，后续写入会被拦截。
+- 请在 Lead 会话中调整共享权限；队员单独调整的值会在同步时恢复为 Lead 的值。
 
-## 成员容量复用 / Reusable member capacity
+同步只复制 Lead 的常驻授权，不复制单次审批产生的临时授权，不扩大工作区边界，也不把队员冒充为 Lead。需要直接询问用户、管理目标或具备 Lead 身份的操作仍交给 Lead。普通 `subagent`、`subagent_fork` 保持其创建时的独立授权快照。
 
-从 v0.9.0 起，`maxMembers` 对插件中的团队创建操作表示**尚未成功移除的成员数上限**。例如配置为 8，创建 8 个成员并全部成功移除后，可以再创建 8 个新成员；Lead 不计入该上限。`create_teammate` 和原生 `spawn_teammate` 都使用同一处理路径，现有会话与重启后的会话均可复用名额。
+权限变化会追加到成员自己的原生会话日志中，便于重启恢复和追溯。禁用插件后不再持续同步，日志中最后生效的权限值保留。
 
-只有完整退队且没有清理错误的记录才能释放名额。未运行、准备中、失败但尚未手动移除、移除中或移除失败的成员仍占名额。历史、任务回收和归档保持原样，旧名字仍永久保留，不能复用。
+## 成员名额复用
 
-0.2.2-rc.1 的原生上限仍按历史名册计数且没有退队计数接口。本插件适配创建入口，在每次原生创建事务中使用只读的容量视图，按成功退队记录抵扣历史占位；不修改共享的原生配置、名册、Session 文件或 Team phase，也不重载原生 Team 服务。原生事务继续串行校验并发创建，所以一个空位只允许一个请求成功。禁用本插件后恢复原生历史总数上限。
+插件启用时，`maxMembers` 表示**尚未成功移除的成员数上限**。例如上限为 8，创建 8 个成员并全部成功移除后，可以再创建 8 个新成员。Lead 不计入该上限。
 
-`maxMembers` remains the configured limit, interpreted while the plugin is active as unreleased teammates rather than all historical names. Only committed successful retirement earns capacity credit. Both creation tools reuse the native roster implementation and serialized transaction through a 0.2.2-rc.1-specific, per-call read-only view; the shared native limit and full historical roster remain unchanged. Retired names remain reserved, failed/removing entries still count until cleanup succeeds, and disabling the plugin restores native historical-limit behavior.
+只有完整退队且没有清理错误的记录才释放名额。未运行、准备中、创建失败但尚未手动移除、移除中或移除失败的成员仍占名额。
 
-## 移除已完成任务 / Remove completed tasks
+`create_teammate` 和原生 `spawn_teammate` 使用同一套名额处理，已有会话和重启后的会话都能复用名额。并发创建仍受原生事务检查，一个空位最多只能有一个请求成功。
 
-在 **智能体团队 → 共享任务** 中，已完成的任务卡片显示 **移除**。单击立即执行，**不弹出二次确认**；进行中会禁用按钮并防止重复提交。任务从列表和计数中移除，刷新或重启后保持，原生任务历史保留。
+**历史会话和旧名字永久保留，不能重复使用已经用过的队友名称。** 插件不会通过删除名册、修改原生成员状态或改写会话文件释放名额。
 
-待处理、进行中的任务不显示移除按钮。请求带上所点击任务的 revision，后台再次检查完成状态，避免任务被重新打开后遭到误删。其他任务仍引用它为依赖时，遵循原生 Team 约束并显示原因，不自动修改依赖图。请先移除已完成的后续任务或调整依赖。
+DSH 0.2.2-rc.1 原生按历史成员总数限制创建，尚无原生退队计数接口。本插件在每次创建事务中按成功退队记录抵扣历史占位，保持共享配置不变。禁用插件后恢复原生历史总数限制。
 
-UI 使用 `/team-task-remove <task-id> <revision>`，由 Lead 根会话执行；模型可继续使用原生 `team_task_update` 的 `delete` 动作。界面请求和模型动作都使用原生 `agentTeams.updateTask` 与持久化记录，没有新增任务副本或物理删除历史。
+## 移除团队成员
 
-Completed task cards offer immediate removal without a confirmation dialog. The Host checks the clicked revision and current completed status before the native delete transition. Native authorization, dependency protection, and history remain intact; failures stay visible on the card. Pending and running tasks have no removal button.
+打开 **智能体团队 → 成员**，点击对应队友的 **移除**，阅读确认说明后执行。也可以让 Lead 调用 `remove_teammate`，或在 Lead 会话中直接输入：
 
-## 手动清理子智能体 / Manual subagent cleanup
+```text
+/team-remove teammate-name
+```
 
-普通子智能体不一定是 Team 成员。本插件保留两条独立路径：
+退队会停止成员及其后台工作，等待活动结束，归档子会话，并将其未完成共享任务回收为“待处理、未分配”。成功后，该成员从团队面板和 `list_agents` 中消失，后续消息和恢复执行会被拒绝。
 
-- 在会话标题栏的 **子智能体** 下拉列表中，点击某个本地子智能体旁的 **移除**，阅读确认说明后执行。嵌套子会话保留展开、主区域打开及侧栏打开功能。
-- 用户也可以在父会话中输入 `/subagent-remove <session-id>`，不需要模型推理。
-- Lead 或拥有该子会话的父智能体先调用 `list_manageable_subagents` 获取准确的会话 ID，再调用 `remove_subagent`；Team 名称入口 `remove_teammate` 仍可用。
-- 普通本地子智能体：停止所选子树、等待后台工作收敛、归档子会话并从插件列表和计数中过滤；刷新或重启后保持。历史日志和原生目录记录保留，不物理删除。
-- Team 成员：自动转到已有退队服务，额外回收未完成共享任务，不能绕过任务回收。
-- 外部执行没有可归档的本地 Session，未知或损坏目录也无法验证归属，因此这些项暂不提供移除按钮。不能移除当前会话、祖先或其他会话树中的智能体。
+Lead 不能移除自己。清理未完成时，成员保持阻止新工作并显示可重试错误，不会报告虚假的成功。历史保留，退队名称不能复用。
 
-清理完全手动触发。**未运行不代表任务已完成或没有用处**，插件不会按空闲状态自动移除。未收敛的操作显示可重试错误并保留 `removing` 状态，只有清理成功后才从列表消失。禁用插件会恢复原生历史目录显示；已归档子会话仍保持归档。
+## 移除已完成任务
 
-The native subagent catalog and lineage controls gain per-entry confirmed removal. `list_manageable_subagents` discovers ordinary children and Team members by exact session ID; `remove_subagent` and `/subagent-remove <session-id>` share the Host operation. Only descendants of the invoking parent are eligible. Local ordinary subtrees are stopped and archived with history retained; Team members use the existing task-reclaiming removal flow. External executions, unknown modes and unreadable branches are refused rather than reported as removed. No automatic cleanup runs.
+打开 **智能体团队 → 共享任务**，已完成的任务卡片显示 **移除**。单击立即执行，**不弹出二次确认**；处理中会禁用按钮，防止重复提交。
 
-## Host configuration
+移除后任务从列表和计数中消失，刷新或重启后保持，任务历史仍然保留。待处理、进行中的任务不显示移除按钮。
 
-The optional profile override uses these fields; the GUI writes the same namespace:
+后台会再次检查任务状态和所点击的任务版本。如果任务已被重新打开或发生变化，会保留任务并提示重试。任务仍被其他任务依赖时，也会显示原因；请先移除已完成的后续任务或调整依赖，插件不会自动修改依赖图。
+
+界面通过以下命令执行相同的原生任务操作；Lead 也可使用原生 `team_task_update` 的 `delete` 动作：
+
+```text
+/team-task-remove task-id revision
+```
+
+## 清理普通子智能体
+
+**普通子智能体不一定是团队成员**，因此子智能体列表可能比团队名册更长。本插件分别处理这两类对象：
+
+- 在标题栏的 **子智能体** 下拉列表中，点击某行的 **移除**，确认后执行。嵌套子会话保留展开、在主区域打开和在侧栏打开的功能。
+- 普通本地子智能体：停止所选子树、等待后台工作结束、归档子会话，并从插件列表和计数中过滤；刷新和重启后保持。原生日志与目录记录保留，不物理删除。
+- 团队成员：转入已有退队流程，额外回收未完成共享任务，不绕过任务回收。
+- 外部执行没有可归档的本地会话；未知或损坏目录也无法验证归属，因此这些对象暂不提供移除按钮。
+
+用户可在拥有该子智能体的父会话中输入：
+
+```text
+/subagent-remove session-id
+```
+
+Lead 或父智能体也可先用 `list_manageable_subagents` 获取准确 ID，再调用 `remove_subagent`。不能移除当前会话、祖先或无关会话树中的智能体。
+
+清理完全由用户或 Lead 手动触发。**未运行不代表任务已经完成，也不代表该智能体没有用处**，插件不会按空闲状态自动移除。失败操作显示可重试错误，只有清理成功才从列表消失。
+
+## 支持的 DSH 版本
+
+**本版仅支持 DSH 0.2.2-rc.1。** 插件随 DSH 更新，每次针对新的目标运行时验证和发布，不保留旧运行时的兼容范围。请先升级 DSH，再安装对应插件版本。
+
+v0.10 系列已适配新的模型选择接口、会话投影句柄和模型目录刷新事件。旧会话经过官方 V3→V4 转换后，团队退队和普通子智能体清理记录仍会被识别，避免已移除对象重新出现；旧投影缓存会按版本失效并从历史重建。
+
+模型选择在步骤准备前通过原生 `agent.model.select()` 记录。已经为某一步捕获的选择保持不变，稍后的更新用于下一步，不再通过旧的 `agent/request` 钩子修改模型。
+
+## 禁用与重启
+
+禁用插件前会等待插件已接收的操作收敛，然后释放相关监听、工具和界面入口。已移除的子会话仍保持归档，但原生历史名册和子智能体目录会重新显示；再次启用插件后恢复过滤。
+
+成员最后记录的模型和权限可能保留在会话日志中。禁用后如需切换，请通过模型选择器或新的明确模型选择操作完成。历史请求、成员模型选择和任务日志不会被删除。
+
+## 部署配置
+
+通常直接使用设置页即可。需要在部署配置中覆盖时，可使用以下字段；界面写入同一设置项：
 
 ```yaml
 - id: team-model-policy
@@ -95,30 +141,21 @@ The optional profile override uses these fields; the GUI writes the same namespa
     reasoningEffort: ''
 ```
 
-The Host policy, retirement service, and browser settings are separate bundle entries so saving settings does not remount the settings window. The retirement service uses a plugin-owned projection and the Workspace archive admission path; native Team history and member records remain intact. The mode and route fields are volatile settings. Fixed-route validation happens when that route is used, allowing an unconfigured installation to open its settings page. In follow mode, saved additions and removals in the ordinary Subagent settings apply to existing Teams immediately. The native ordinary-subagent tools retain their original Session policy. Historical Session policy events are preserved.
+模型策略、退队服务和设置界面是三个独立组件。保存模型设置不会重新挂载整个设置窗口。跟随模式读取最新子智能体授权列表；普通子智能体工具仍遵循其原会话授权规则，不与团队模型目录混用。
 
-## Supported DSH version
+退队服务的等待时间可通过 `team-member-retirements` 下的 `jobStopTimeoutMs` 调整，默认 30000 毫秒。超时不会假装完成清理，用户或 Lead 可以重试。
 
-This release supports **DSH 0.2.2-rc.1 only**. Plugin releases track DSH updates: each release targets the current verified DSH version, and older DSH versions are not maintained. Upgrade DSH to the declared version before installing the matching plugin release.
+## 验证与开发
 
-本插件随 DSH 更新。本版仅支持 **DSH 0.2.2-rc.1**，后续版本针对新的 DSH 版本验证和发布，不保留旧版兼容范围。请先升级 DSH，再安装对应的插件版本。
+v0.10.0 适配已通过 **74 项单元/组件测试和 28 个目标运行时场景**，覆盖模型选择、动态授权、切换、普通与 PTC 权限同步、任务移除、名额复用、子智能体清理和冷恢复。v0.10.1 补齐中文说明，功能代码和客户端构建产物与该验收版本一致。
 
-Version 0.10.0 targets the official **0.2.2-rc.1** runtime. Model choices now use `agent.model.select()` before step preparation; the plugin no longer changes provider, model or reasoning effort in the deprecated `agent/request` hook. The captured selection is validated without replacing it, so a later switch applies to the next step. Client model choices refresh on the new `llm/models-updated` event. Projection registrations are awaited and their ready handles remain readable throughout cleanup and reload.
+测试使用隔离环境和专用团队。只有模型输出采用脚本，其余 Loader、工具、团队生命周期和持久化使用真实目标实现。迁移测试使用官方 V3→V4 转换器，并检查旧缓存重建和已移除对象的恢复阻止。桌面截图与实际点击验证会单独记录，不与自动测试混为一谈。
 
-Existing Team and ordinary-subagent retirement records survive the official V3→V4 migration, including the migrated plugin event names. Projection version 2 invalidates older empty checkpoints and rebuilds from the retained log. Canonical writes, historical names and Session files are preserved; no Team phase is fabricated. New and old-format removal records can coexist.
-
-本版适配新模型选择接口、投影 handle 和模型目录刷新事件，并保留旧会话迁移后的退队/清理记录，避免已移除成员再次出现。新版只支持本次目标运行时，升级 DSH 后再安装本版插件。
-
-Real Loader/headless scenarios cover routing, dynamic authorization, switching, native/PTC permission sharing, task removal, capacity reuse, ordinary-subagent cleanup and cold recovery against the official target npm packages. The migration suite uses the official V3→V4 converter and target projection cache. Required Client exports and contracts were checked; Electron Desktop screenshot-level verification remains separate until the application is upgraded. This is an independent community plugin, not an official DeepSeek package.
-
-Disabling the component removes listeners, prompt contributions and tools after owned operations settle. Retired child Sessions remain archived after disablement; the native historical roster becomes visible when the popup replacement is disabled. Re-enable the plugin to restore its filtered roster. The retirement service stop budget is configurable as `jobStopTimeoutMs` under `team-member-retirements` (default 30000 ms). It preserves recorded requests and choices. Existing Sessions can retain their last recorded route after disablement; use a model picker or choose a new route explicitly.
-
-## Verify
+在源码目录可按改动范围运行：
 
 ```sh
 node src/client/build.cjs --check
-node --test tests/client.test.mjs
-ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/policy.test.mjs tests/choices.test.mjs
+ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test tests/*.test.mjs
 node tests/run-integration.mjs
 node tests/run-subagent-integration.mjs
 node tests/run-team-access.mjs --verify
@@ -129,12 +166,16 @@ node tests/run-task-removal.mjs
 node tests/run-team-capacity.mjs
 ```
 
-The integration suite uses `dsh --profile headless`, its real Loader, tools, Team lifecycle and persistence. Only the external LLM adapter is scripted. It checks native baseline behavior, fixed routes, cold recovery, follow-mode default max, explicit off, a mid-session model/effort switch, live teammate removal, the roster command, provider reload during removal, owned-worker cleanup, task reclamation, cold recovery fencing, and route failures. It independently decodes persisted request headers with `zstd`. Every attempt is retained under `.evidence/` and excluded from Git.
+`DSH_TEST_CLI` 可指定 JSON 格式的启动命令数组，`DSH_TEST_INSTALL_ANCHOR` 可指定另一套目标安装包，`DSH_TEST_ZSTD` 可指定日志解码器。修改界面源码后须重新构建 `lib/client.js`。安装包包含生成文件，用户无需安装 `esbuild` 等开发依赖。
 
-`DSH_TEST_CLI` can supply a JSON launcher argv array; `DSH_TEST_INSTALL_ANCHOR` selects another matching installation; `DSH_TEST_ZSTD` selects the log decoder. The client tests render the real React card, exercise revision-fenced saves, and load the distributed factory against platform-module imports.
+私有验收证据位于 `.evidence/`，不纳入 Git 或公开安装包。插件不包含 API 密钥、遥测、新的 HTTP 端点或替代服务器。
 
-## Model experience
+## 模型上下文
 
-Six model-facing tools and two short policy sections are added. A short logged runtime context clarifies Team permission sharing and PTC invocation; scoped masks hide global Lead-only schemas from teammates. Teammate removal is a destructive Team operation and remains Lead-only. Their schemas and tool results contribute prompt tokens. Per-member state is not injected as an unlogged prompt: actual model requests are recorded by DSH. The plugin has no API keys, telemetry, new HTTP endpoints or replacement server.
+插件增加六个模型可见工具和两段简短策略说明，并通过运行时上下文解释团队权限跟随和 PTC 调用方式。Lead 专用工具从队员的全局工具列表中隐藏，原生角色校验继续生效。
 
-MIT licensed.
+成员模型选择和权限变化通过原生日志追溯，实际模型请求记录在 `request/header` 中。插件不会把成员状态作为未记录的隐式提示注入模型。
+
+## 许可证
+
+采用 MIT 许可证。改编自 DSH 的界面部分保留原作者声明，见随包发布的 `THIRD_PARTY_NOTICES.md`。
