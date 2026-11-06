@@ -125,6 +125,26 @@ export function apply(ctx, config) {
     }
     return undefined;
   };
+  // One persisted history at a time across all rosters. JSONL backends may decode
+  // the complete log even for a slice, so parallel cold reads multiply peak memory.
+  let coldReadTail = Promise.resolve();
+  const readColdModel = (id, signal) => {
+    const operation = coldReadTail.then(async () => {
+      signal.throwIfAborted();
+      const handle = await ctx.sessionPersistence.open(id, 'read', { signal });
+      try {
+        const offset = handle.inheritedEventCount;
+        if (!Number.isSafeInteger(offset) || offset < 0) throw new TeamModelPolicyError('The stored teammate handle has no valid inherited event count.', 'UNSUPPORTED_RUNTIME');
+        const stored = await handle.read(offset, undefined, { signal });
+        signal.throwIfAborted();
+        return lastRequest(stored.events);
+      } finally {
+        await handle.close();
+      }
+    });
+    coldReadTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  };
   const fixMember = async (row, members, signal) => {
     const member = members.find(candidate => candidate.name === row.target);
     if (member === undefined || member.status === 'failed' || member.status === 'provisioning') return row;
@@ -133,14 +153,7 @@ export function apply(ctx, config) {
     if (live !== undefined) {
       actual = lastRequest(live.session.snapshotEvents(live.session.inheritedEventCount));
     } else {
-      const handle = await ctx.sessionPersistence.open(member.id, 'read', { signal });
-      try {
-        const stored = await handle.read();
-        signal.throwIfAborted();
-        actual = lastRequest(stored.events.slice(stored.inheritedEventCount));
-      } finally {
-        await handle.close();
-      }
+      actual = await readColdModel(member.id, signal);
     }
     const { model: _oldModel, ...rest } = row;
     const planned = member.role === 'teammate' ? await configuredRoute(members.caller, member, false) : live?.model?.current() ?? live?.options;

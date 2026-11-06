@@ -1,6 +1,6 @@
 {
   "name": "dsh-team-model-policy",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Configure teammate models and manually retire ordinary subagents or Team members while retaining conversation history.",
   "type": "module",
   "main": "./ui.mjs",

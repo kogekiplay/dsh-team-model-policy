@@ -142,25 +142,68 @@ test('unload waits for in-flight preflight to settle and removes effects', async
 test('cold member model comes from its own durable header and the read handle closes', async t => {
   const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
   h.agents.delete(h.child.id); let closed = false;
-  h.persistence.open = async () => ({ read: async () => ({ inheritedEventCount: 1,
-    events: [header('audit', 'parent-only'), header('audit', 'flash')] }), close: async () => { closed = true; } });
+  h.persistence.open = async () => ({ inheritedEventCount: 1, read: async (offset, length, options) => {
+    assert.equal(offset, 1); assert.equal(length, undefined); assert.ok(options.signal instanceof AbortSignal);
+    return { eventState: 'detached', events: [header('audit', 'parent-only'), header('audit', 'flash')].slice(offset) };
+  }, close: async () => { closed = true; } });
   const exec = { name: 'list_agents', agent: h.root, signal: new AbortController().signal };
   const decision = await h.ctx.waterfall('tools/post-execute', exec,
     { isError: false, value: [memberRow('worker')] }, async () => ({ kind: 'accept' }));
   assert.equal(decision.value[0].model, 'flash'); assert.equal(closed, true);
 });
 
+test('cold fork with no own request never reports the inherited parent model', async t => {
+  const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
+  h.agents.delete(h.child.id);
+  h.persistence.open = async () => ({ inheritedEventCount: 1,
+    read: async offset => ({ eventState: 'detached', events: [header('audit', 'parent-only')].slice(offset) }), close: async () => {} });
+  const exec = { name: 'list_agents', agent: h.root, signal: new AbortController().signal };
+  const decision = await h.ctx.waterfall('tools/post-execute', exec,
+    { isError: false, value: [memberRow('worker')] }, async () => ({ kind: 'accept' }));
+  assert.equal(decision.value[0].model, 'flash'); assert.match(decision.value[0].diagnostics.join(' '), /No member request/);
+});
+
+test('concurrent rosters never open a second cold history before the first handle closes', async t => {
+  const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
+  h.agents.delete(h.child.id);
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), closing = Promise.withResolvers(), finishClose = Promise.withResolvers();
+  let opened = 0, active = 0, peak = 0;
+  h.persistence.open = async () => { const sequence = ++opened; peak = Math.max(peak, ++active);
+    return { inheritedEventCount: 0, read: async () => { if (sequence === 1) { entered.resolve(); await release.promise; } return { eventState: 'detached', events: [header('audit', 'flash')] }; }, close: async () => { if (sequence === 1) { closing.resolve(); await finishClose.promise; } active--; } }; };
+  const exec = { name: 'list_agents', agent: h.root, signal: new AbortController().signal };
+  const run = () => h.ctx.waterfall('tools/post-execute', exec, { isError: false, value: [memberRow('worker')] }, async () => ({ kind: 'accept' }));
+  const first = run(); await entered.promise; const second = run();
+  try {
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(opened, 1); assert.equal(active, 1);
+    release.resolve(); await closing.promise;
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(opened, 1, 'the next read must wait for close, not just read completion');
+  } finally { release.resolve(); finishClose.resolve(); }
+  const results = await Promise.all([first, second]);
+  assert.equal(opened, 2); assert.equal(peak, 1); assert.equal(active, 0); assert.ok(results.every(r => r.value[0].model === 'flash'));
+});
+
+test('a queued cancelled roster never opens its cold history', async t => {
+  const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route); h.agents.delete(h.child.id);
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), controller = new AbortController(); let opened = 0;
+  h.persistence.open = async () => { opened++; return { inheritedEventCount: 0, read: async () => { entered.resolve(); await release.promise; return { eventState: 'detached', events: [header('audit', 'flash')] }; }, close: async () => {} }; };
+  const run = signal => h.ctx.waterfall('tools/post-execute', { name: 'list_agents', agent: h.root, signal }, { isError: false, value: [memberRow('worker')] }, async () => ({ kind: 'accept' }));
+  const first = run(new AbortController().signal); await entered.promise;
+  const rejection = assert.rejects(run(controller.signal), /queued read cancelled/);
+  await new Promise(resolve => setImmediate(resolve)); controller.abort(new Error('queued read cancelled')); release.resolve();
+  await Promise.all([first, rejection]); assert.equal(opened, 1);
+});
+
 test('cancelled persisted reads close before the result is rejected', async t => {
   const h = harness(); t.after(() => h.ctx.fiber.dispose()); await h.ctx.plugin(policy, route);
   h.agents.delete(h.child.id); let closed = false;
   const entered = Promise.withResolvers(); const release = Promise.withResolvers(); const controller = new AbortController();
-  h.persistence.open = async () => ({ read: async () => { entered.resolve(); return release.promise; }, close: async () => { closed = true; } });
+  h.persistence.open = async () => ({ inheritedEventCount: 0, read: async () => { entered.resolve(); return release.promise; }, close: async () => { closed = true; } });
   const exec = { name: 'list_agents', agent: h.root, signal: controller.signal };
   const operation = h.ctx.waterfall('tools/post-execute', exec,
     { isError: false, value: [memberRow('worker')] }, async () => ({ kind: 'accept' }));
   const rejection = assert.rejects(operation, /cancelled read/);
   await entered.promise; controller.abort(new Error('cancelled read'));
-  release.resolve({ events: [header('audit', 'flash')], inheritedEventCount: 0 });
+  release.resolve({ eventState: 'detached', events: [header('audit', 'flash')] });
   await rejection; assert.equal(closed, true);
 });
 
@@ -169,9 +212,9 @@ test('one roster read failure waits for the other owned read to close', async t 
   h.agents.delete(h.child.id);
   h.members.push({ id: 'other', name: 'other', role: 'teammate', status: 'inactive' });
   const entered = Promise.withResolvers(); const release = Promise.withResolvers(); const closed = [];
-  h.persistence.open = async id => ({ read: async () => {
+  h.persistence.open = async id => ({ inheritedEventCount: 0, read: async () => {
     if (id === 'child') throw new Error('read failed');
-    entered.resolve(); await release.promise; return { events: [header('audit', 'flash')], inheritedEventCount: 0 };
+    entered.resolve(); await release.promise; return { eventState: 'detached', events: [header('audit', 'flash')] };
   }, close: async () => { closed.push(id); } });
   const exec = { name: 'list_agents', agent: h.root, signal: new AbortController().signal };
   let settled = false;
