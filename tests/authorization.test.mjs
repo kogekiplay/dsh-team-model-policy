@@ -40,8 +40,28 @@ test('revocation during discovery is observed before returning exact model capab
   f.ctx.llm.resolveModelInfo = async () => { f.set({ enabled: false, allowedModels: [] }); return { id: 'flash', name: 'Flash' }; };
   await assert.rejects(listCurrentModels(f.ctx, { provider: 'a', model: 'flash' }, signal), { code: 'TEAM_MODEL_SELECTION_DISABLED' });
 });
-test('missing settings owner reports disabled and discovery requires provider with a model', async () => {
+test('missing settings owner reports unavailable without claiming the user disabled model selection', async () => {
   const f = fixture(); f.ctx.get = () => undefined;
-  assert.deepEqual(currentAuthorization(f.ctx), { enabled: false, routes: [] });
+  assert.deepEqual(currentAuthorization(f.ctx), { available: false, enabled: false, routes: [] });
+  const result = await listCurrentModels(f.ctx, {}, signal);
+  assert.equal(result.available, false); assert.equal(result.diagnostic.code, 'TEAM_MODEL_SELECTION_UNAVAILABLE');
+  assert.deepEqual(result.providers, []); assert.deepEqual(result.routes, []);
+  assert.throws(() => authorizeCurrent(f.ctx, { provider: 'a', model: 'flash' }), { code: 'TEAM_MODEL_SELECTION_UNAVAILABLE' });
+  await assert.rejects(listCurrentModels(f.ctx, { provider: 'a' }, signal), { code: 'TEAM_MODEL_SELECTION_UNAVAILABLE' });
   await assert.rejects(listCurrentModels(f.ctx, { model: 'flash' }, signal), /model requires provider/);
+});
+test('an explicitly disabled setting remains distinct from an unloaded component', async () => {
+  const f = fixture(); f.set({ enabled: false, allowedModels: [{ provider: 'a', model: 'flash' }] });
+  assert.deepEqual(currentAuthorization(f.ctx), { available: true, enabled: false, routes: [] });
+  const result = await listCurrentModels(f.ctx, {}, signal);
+  assert.equal(result.available, true); assert.equal(result.diagnostic.code, 'TEAM_MODEL_SELECTION_DISABLED');
+  assert.throws(() => authorizeCurrent(f.ctx, { provider: 'a', model: 'flash' }), { code: 'TEAM_MODEL_SELECTION_DISABLED' });
+});
+test('loading the settings component restores current choices without rewriting authorization', async () => {
+  const f = fixture(), get = f.ctx.get; f.ctx.get = () => undefined;
+  assert.equal((await listCurrentModels(f.ctx, {}, signal)).available, false);
+  f.ctx.get = get;
+  const result = await listCurrentModels(f.ctx, {}, signal);
+  assert.equal(result.available, true); assert.equal(result.enabled, true); assert.equal(result.diagnostic, undefined);
+  assert.deepEqual(result.routes, [{ provider: 'a', model: 'flash' }]);
 });

@@ -1,6 +1,6 @@
 {
   "name": "dsh-team-model-policy",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Configure teammate models and manually retire ordinary subagents or Team members while retaining conversation history.",
   "type": "module",
   "main": "./ui.mjs",
@@ -59,6 +59,15 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/kogekiplay/dsh-team-model-policy.git"
+  },
+  "homepage": "https://github.com/kogekiplay/dsh-team-model-policy#readme",
+  "bugs": {
+    "url": "https://github.com/kogekiplay/dsh-team-model-policy/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "latest"
   },
   "license": "MIT",
   "dependencies": {

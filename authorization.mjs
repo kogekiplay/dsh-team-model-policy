@@ -3,16 +3,17 @@ import { normalizedRoute } from './choices.mjs';
 /** Current, saved Subagent settings. Session snapshots remain historical data. */
 export function currentAuthorization(ctx) {
   const owner = ctx.get('subagentModelSelection');
-  if (typeof owner?.current !== 'function') return { enabled: false, routes: [] };
+  if (typeof owner?.current !== 'function') return { available: false, enabled: false, routes: [] };
   const preference = owner.current();
-  if (!preference.enabled) return { enabled: false, routes: [] };
-  return { enabled: true, routes: preference.allowedModels.map(route => ({ provider: route.provider, model: route.model })) };
+  if (!preference.enabled) return { available: true, enabled: false, routes: [] };
+  return { available: true, enabled: true, routes: preference.allowedModels.map(route => ({ provider: route.provider, model: route.model })) };
 }
 
 /** Validate an explicit or inherited teammate route against the latest user selection. */
 export function authorizeCurrent(ctx, route) {
   const choice = normalizedRoute(route);
   const policy = currentAuthorization(ctx);
+  if (!policy.available) throw Object.assign(new Error('The Subagent model-selection settings service is not loaded. Enable the DSH Subagent settings component before choosing teammate models.'), { code: 'TEAM_MODEL_SELECTION_UNAVAILABLE' });
   if (!policy.enabled) throw Object.assign(new Error('Enable model selection in Subagent settings before choosing teammate models.'), { code: 'TEAM_MODEL_SELECTION_DISABLED' });
   if (!policy.routes.some(candidate => candidate.provider === choice.provider && candidate.model === choice.model)) {
     throw Object.assign(new Error('Route "' + choice.provider + '/' + choice.model + '" is not currently authorized. Refresh list_teammate_models after saving Subagent settings.'), { code: 'TEAM_MODEL_ROUTE_NOT_ALLOWED' });
@@ -25,8 +26,11 @@ export async function listCurrentModels(ctx, request, signal) {
   if (request.model !== undefined && request.provider === undefined) throw new Error('model requires provider');
   const policy = currentAuthorization(ctx);
   const providers = ctx.llm.listProviders().filter(provider => policy.routes.some(route => route.provider === provider.id));
-  if (request.provider === undefined) return { source: 'live-subagent-settings', enabled: policy.enabled,
-    providers: providers.map(provider => ({ id: provider.id, name: provider.name })), routes: policy.routes };
+  const diagnostic = !policy.available ? { code: 'TEAM_MODEL_SELECTION_UNAVAILABLE', message: '子智能体模型授权组件未加载。请检查官方子智能体扩展及依赖版本，启用对应设置组件；已保存的模型勾选不会被清空。' }
+    : !policy.enabled ? { code: 'TEAM_MODEL_SELECTION_DISABLED', message: '模型选择开关已关闭。请在子智能体设置中启用并保存授权模型。' } : undefined;
+  if (request.provider === undefined) return { source: 'live-subagent-settings', available: policy.available, enabled: policy.enabled,
+    ...(diagnostic === undefined ? {} : { diagnostic }), providers: providers.map(provider => ({ id: provider.id, name: provider.name })), routes: policy.routes };
+  if (!policy.available) throw Object.assign(new Error(diagnostic.message), { code: diagnostic.code });
   const routes = policy.routes.filter(route => route.provider === request.provider);
   if (!policy.enabled || routes.length === 0) throw Object.assign(new Error('This provider is not currently authorized in Subagent settings.'), { code: 'TEAM_MODEL_ROUTE_NOT_ALLOWED' });
   const provider = providers.find(candidate => candidate.id === request.provider);
