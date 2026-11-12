@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Team model policy",
-    "description": "Configure teammate models and manually retire ordinary subagents or Team members while retaining conversation history."
+    "title": "Completed task cleanup",
+    "description": "Remove completed tasks directly from the shared task board without another confirmation. Retains history and checks task revisions and dependencies. Since v0.11, models, permissions and agent management use native DSH features."
   }
 }

@@ -6,14 +6,14 @@ export async function removeCompletedTask(ctx, caller, taskId, expectedRevision,
   if (!/^task-[1-9]\d*$/.test(taskId) || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
     throw failure('任务 ID 或版本无效。', 'TEAM_TASK_INVALID_ARGUMENT');
   }
-  if (ctx.agentTeams.membership(caller).role !== 'lead') throw failure('请从 Lead 会话移除已完成任务。', 'TEAM_LEAD_REQUIRED');
+  if (caller === undefined || ctx.subagents.rootOf(caller) !== caller) throw failure('请从 Lead 会话移除已完成任务。', 'TEAM_LEAD_REQUIRED');
   const current = ctx.agentTeams.getTask(caller, taskId);
   if (current.status === 'deleted') return { removed: true, alreadyRemoved: true, taskId };
   if (current.status !== 'completed') throw failure('该任务已不再是已完成状态，未移除。', 'TEAM_TASK_NOT_COMPLETED');
   if (current.revision !== expectedRevision) throw failure('任务已变化，未移除，请按最新状态重试。', 'TEAM_TASK_STALE_REVISION');
   signal?.throwIfAborted();
   try {
-    await ctx.agentTeams.updateTask(caller, { taskId, expectedRevision, action: 'delete' });
+    await ctx.agentTeams.updateTask(caller, { taskId, expectedRevision, action: 'delete' }, signal);
     return { removed: true, alreadyRemoved: false, taskId };
   } catch (error) {
     if (error?.code === 'TEAM_TASK_STALE_REVISION') throw failure('任务已变化，未移除，请按最新状态重试。', error.code);

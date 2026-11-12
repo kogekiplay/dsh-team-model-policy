@@ -1,10 +1,3 @@
 - insert:
-    - id: team-member-retirements
-      name: dsh-team-model-policy/retirements
-    - id: team-model-policy
-      name: dsh-team-model-policy/policy
-      config:
-        mode: follow-subagent
-        defaultReasoningEffort: max
-    - id: team-model-policy-settings
+    - id: completed-team-task-cleanup
       name: dsh-team-model-policy

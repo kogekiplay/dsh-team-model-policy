@@ -1,5 +1,7 @@
-/** Stable Host companion for Settings and direct user actions; policy lives in ./policy. */
+/** Completed task removal only; the native Team service owns data and persistence. */
 import { registerTaskActions } from './task-actions.mjs';
-export const name = 'team-model-policy-settings';
-export const inject = ['agentTeams', 'commands'];
-export function apply(ctx) { ctx.effect(function* () { yield registerTaskActions(ctx); }); }
+export const name = 'completed-team-task-cleanup';
+export const inject = ['agentTeams', 'subagents', 'commands'];
+export function apply(ctx) {
+  ctx.effect(() => registerTaskActions(ctx));
+}

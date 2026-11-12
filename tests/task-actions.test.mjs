@@ -4,7 +4,7 @@ import {removeCompletedTask, registerTaskActions} from '../task-actions.mjs';
 
 function fixture(status='completed', revision=3) {
  const calls=[], caller={id:'lead'};
- const ctx={agentTeams:{membership:()=>({role:'lead'}),getTask:()=>({id:'task-1',status,revision}),updateTask:async(_a,change)=>{calls.push(change);return {...change,status:'deleted'};}}};
+ const ctx={subagents:{rootOf:agent=>agent},agentTeams:{getTask:()=>({id:'task-1',status,revision}),updateTask:async(_a,change)=>{calls.push(change);return {...change,status:'deleted'};}}};
  return {ctx,caller,calls};
 }
 test('completed task removal uses its exact revision and native delete transition', async()=>{
@@ -19,7 +19,7 @@ test('dependency and transaction conflicts are surfaced without retry or graph m
  for(const code of ['TEAM_TASK_HAS_DEPENDENTS','TEAM_TASK_STALE_REVISION']){const f=fixture();f.ctx.agentTeams.updateTask=async(_a,change)=>{f.calls.push(change);throw Object.assign(new Error('native refusal'),{code});};await assert.rejects(removeCompletedTask(f.ctx,f.caller,'task-1',3),e=>e.code===code&&e.message.includes('未移除'));assert.equal(f.calls.length,1);assert.equal(f.calls[0].action,'delete');}
 });
 test('non-Lead, cancelled and malformed calls are refused before updates',async()=>{
- const f=fixture();f.ctx.agentTeams.membership=()=>({role:'teammate'});await assert.rejects(removeCompletedTask(f.ctx,f.caller,'task-1',3),{code:'TEAM_LEAD_REQUIRED'});
+ const f=fixture();f.ctx.subagents.rootOf=()=>({id:'another-root'});await assert.rejects(removeCompletedTask(f.ctx,f.caller,'task-1',3),{code:'TEAM_LEAD_REQUIRED'});
  for(const [id,rev] of [['bad',3],['task-1',0],['task-1',Number.MAX_SAFE_INTEGER+1]])await assert.rejects(removeCompletedTask(f.ctx,f.caller,id,rev),{code:'TEAM_TASK_INVALID_ARGUMENT'});
  const controller=new AbortController();controller.abort(new Error('cancelled'));await assert.rejects(removeCompletedTask(f.ctx,f.caller,'task-1',3,controller.signal),/cancelled/);assert.deepEqual(f.calls,[]);
 });

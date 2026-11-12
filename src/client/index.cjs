@@ -1,77 +1,83 @@
-/** Team model settings, using the Host-owned form and platform slot bindings. */
+/** A task-board enhancement. Uses projection selectors, React and native commands only. */
 'use strict'
-const { NAMESPACE, createTeamModelPolicyCard } = require('./card.cjs')
-const { en, ja, zh } = require('./locale.cjs')
-const { SettingsForm } = require('@deepseek-ai/dsh-client-ui-primitives')
-const { createTeamModelPolicyView } = require('./view.cjs')
-const TeamModelPolicyCard = createTeamModelPolicyView(SettingsForm)
 const React = require('react')
-const teamLocale = require('./team-locale.cjs')
-const { TeamAction, styles: teamStyles } = require('./team-view.cjs')
-const subagentLocale = require('./subagent-locale.cjs')
-const { SubagentCatalogAction, SubagentHeaderLineage, styles: subagentStyles } = require('./subagent-view.cjs')
-function RetirementTeamAction(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, teamStyles), React.createElement(TeamAction, props)) }
-function SubagentCatalog(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, subagentStyles), React.createElement(SubagentCatalogAction, props)) }
-function SubagentLineage(props) { return React.createElement(React.Fragment, null, React.createElement('style', null, subagentStyles), React.createElement(SubagentHeaderLineage, props)) }
-const NS = 'settings.teamModelPolicy'
-const inject = ['slots', 'locale', 'remote', 'remote.session', 'remote.commands', 'configForms', 'sessions', 'uiWorkspace']
-function apply(ctx) {
-  const t = ctx.locale.bind(NS)
-  ctx.effect(() => ctx.locale.register(NS, { en, ja, zh }))
-  ctx.effect(() => ctx.locale.register(teamLocale.NS, { en: teamLocale.en, zh: teamLocale.zh, ja: teamLocale.ja }))
-  ctx.effect(() => ctx.locale.register(subagentLocale.NS, { en: subagentLocale.en, zh: subagentLocale.zh, ja: subagentLocale.ja }))
-  const subagentActions = () => ({
-    openChild: address => ctx.uiWorkspace.openSession(address),
-    openChildAside(address) {
-      const sidebar = ctx.get('sidebarRight')
-      if (sidebar === undefined) return ctx.uiWorkspace.openSession(address)
-      const query = new URLSearchParams({ parent: address.parentSessionId, mode: address.mode })
-      sidebar.openResource('dsh-resource://subagentchat/session/' + encodeURIComponent(address.childSessionId) + '?' + query, { kind: 'subagentchat', preferNewPane: true })
-    },
-    refreshProjection: id => ctx.sessions.refreshProjections(id),
-    async removeSubagent(authoritySessionId, childId) {
-      const response = await ctx.remote.commands.execute(authoritySessionId, '/subagent-remove ' + childId, [])
-      if (!response.ok) throw new Error(response.error.message)
-      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? '子智能体移除命令不可用。')
-      await ctx.sessions.refreshProjections(authoritySessionId)
-    },
-  })
-  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions', id: 'subagent-catalog', priority: -1, order: 10, locale: subagentLocale.NS, inject: subagentActions,
-  }, SubagentCatalog)))
-  ctx.effect(() => ctx.slots.inject('conversation.session.header.lineage', () => ctx.slots.register({
-    name: 'conversation.session.header.lineage', priority: -1, locale: subagentLocale.NS, inject: subagentActions,
-  }, SubagentLineage)))
-  const scope = ctx.configForms.get(NAMESPACE)
-  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions', id: 'agent-team', priority: -1, order: -20, locale: teamLocale.NS,
-    inject: () => ({ openTeammate(sessionId, childSessionId) {
-      if ((ctx.sessions.retainInfo(sessionId).getSnapshot().retainedBy.mainView ?? 0) === 0) return
-      const parentSessionId = ctx.sessions.binding(sessionId)?.session.getSnapshot().subagent?.address.parentSessionId ?? sessionId
-      ctx.uiWorkspace.openSession(childSessionId === parentSessionId ? parentSessionId : { parentSessionId, childSessionId, mode: 'continuable' })
-    }, async removeTeammate(sessionId, name) {
-      const response = await ctx.remote.commands.execute(sessionId, '/team-remove ' + name, [])
-      if (!response.ok) throw new Error(response.error.message)
-      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? 'Team removal command is unavailable')
-    }, async removeCompletedTask(sessionId, taskId, revision) {
-      const response = await ctx.remote.commands.execute(sessionId, '/team-task-remove ' + taskId + ' ' + revision, [])
-      if (!response.ok) throw new Error(response.error.message)
-      if (response.value?.result.kind !== 'success') throw new Error(response.value?.result.text ?? '已完成任务移除命令不可用。')
-      await ctx.sessions.refreshProjections(sessionId)
-    } }),
-  }, RetirementTeamAction)))
-  const current = createTeamModelPolicyCard({ scope,
-    readCatalog: () => ctx.remote.session.modelCatalog().then(response => response.ok ? response.value : undefined), t })
-  ctx.effect(() => ctx.remote.$on('llm/adapters-updated', () => { void current.refreshCatalog() }))
-  ctx.effect(() => ctx.remote.$on('llm/models-updated', () => { void current.refreshCatalog() }))
-  ctx.effect(() => ctx.remote.$on('settings/document-updated', () => { void current.refreshCatalog() }))
-  ctx.effect(() => ctx.on('connection/reset', () => { void current.refreshCatalog() }))
-  ctx.effect(() => () => { current.dispose() })
-  ctx.effect(() => ctx.configForms.whileServed([NAMESPACE], () => ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'team-model-policy', order: 60, label: () => t('navTitle'), locale: NS,
-    inject: () => ({ hooks: { teamModelPolicyCard: current }, edit: (field, text) => current.edit(field, text),
-      setMode: mode => current.setMode(mode), resetField: field => current.resetField(field),
-      save: () => { void current.save() }, discard: () => current.discard(), retryCatalog: () => { void current.refreshCatalog() } }),
-  }, TeamModelPolicyCard))))
+const { useRef, useState } = React
+const { NS, zh, en } = require('./locale.cjs')
+const styles = require('./styles.cjs')
+const h = React.createElement
+const SLOT = 'conversation.session.header.actions.subagent.footer'
+
+/** Capture one rendered revision and prevent double submission before React commits. */
+function createRemovalAction(remove, task, onChange) {
+  let busy = false
+  return async () => {
+    if (busy || task.status !== 'completed') return
+    busy = true; onChange({ busy: true, error: null, removed: false })
+    try { await remove(task.id, task.revision); onChange({ busy: false, error: null, removed: true }) }
+    catch (error) { onChange({ busy: false, error: typeof error?.message === 'string' ? error.message : String(error), removed: false }) }
+    finally { busy = false }
+  }
 }
-module.exports = { inject, apply }
+
+function TaskRow({ task, t, remove }) {
+  const [expanded, setExpanded] = useState(false)
+  const [state, setState] = useState({ busy: false, error: null, removed: false })
+  const action = useRef(null)
+  // A fresh render must never replace the in-flight guard.
+  if (action.current === null || !action.current.busy) {
+    const current = { busy: false, revision: task.revision }
+    current.run = createRemovalAction(remove, { ...task }, next => { current.busy = next.busy; setState(next) })
+    action.current = current
+  }
+  if (state.removed) return null
+  const label = t('status.' + task.status)
+  return h('li', { className: 'dtc-task', 'data-team-task': task.id, 'data-status': task.status },
+    h('div', { className: 'dtc-row' },
+      h('button', { type: 'button', className: 'dtc-expand', 'aria-expanded': expanded,
+        onClick: () => setExpanded(value => !value), title: task.subject },
+        h('span', { className: 'dtc-dot dtc-dot-' + task.status, role: 'img', 'aria-label': label }),
+        h('span', { className: expanded ? 'dtc-subject dtc-subject-expanded' : 'dtc-subject' }, task.subject),
+        h('span', { className: 'dtc-chevron', 'aria-hidden': true }, expanded ? '⌃' : '⌄')),
+      task.status === 'completed' && remove && h('button', {
+        type: 'button', className: 'dtc-remove', disabled: state.busy,
+        'aria-label': t('removeAria', { id: task.id }), onClick: () => { void action.current.run() },
+      }, t(state.busy ? 'removing' : 'remove'))),
+    expanded && h('div', { className: 'dtc-details' },
+      task.description && h('p', null, task.description),
+      h('p', null, task.id + ' · ' + label + ' · ' + t('owner') + ': ' + (task.ownerName ?? task.ownerId ?? t('unowned'))),
+      task.blockedBy?.length > 0 && h('p', null, t('blockedBy') + ': ' + task.blockedBy.join(', '))),
+    state.error && h('div', { className: 'dtc-error', role: 'alert' }, state.error))
+}
+
+function CompletedTaskBoard({ sessionId, useProjection, useAccess, removeCompletedTask, t }) {
+  const team = useProjection('agentTeam')
+  const writable = useAccess('commands.execute')
+  if (!team?.enabled) return null
+  const tasks = team.tasks.filter(task => task.status !== 'deleted')
+  if (tasks.length === 0 && !team.failure) return null
+  const completed = tasks.filter(task => task.status === 'completed').length
+  const remove = writable ? (id, revision) => removeCompletedTask(sessionId, id, revision) : undefined
+  return h('section', { className: 'dtc-board', 'aria-label': t('title'), 'data-completed-task-cleanup': true },
+    h('style', null, styles),
+    h('h3', { className: 'dtc-header' }, h('span', null, t('title')), h('small', null, t('progress', { completed, total: tasks.length }))),
+    team.failure && h('div', { className: 'dtc-error', role: 'alert' }, team.failure),
+    h('ul', { className: 'dtc-tasks' }, tasks.map(task => h(TaskRow, { key: task.id, task, t, remove }))))
+}
+
+const inject = ['slots', 'locale', 'remote', 'remote.commands', 'sessions']
+function apply(ctx) {
+  ctx.effect(() => ctx.locale.register(NS, { en, zh }))
+  ctx.effect(() => ctx.slots.inject(SLOT, () => ctx.slots.register({
+    name: SLOT, id: 'agent-team', priority: -1, locale: NS,
+    inject: () => ({
+      async removeCompletedTask(sessionId, taskId, revision) {
+        const response = await ctx.remote.commands.execute(sessionId, '/team-task-remove ' + taskId + ' ' + revision, [])
+        if (!response.ok) throw new Error(response.error.message)
+        if (response.value?.result?.kind !== 'success') throw new Error(response.value?.result?.text ?? ctx.locale.bind(NS)('unavailable'))
+        // The log-backed projection updates the board; a refresh failure must not imply the deletion failed.
+        try { await ctx.sessions.refreshProjections(sessionId) } catch (_) { /* the next native projection publication reconciles it */ }
+      },
+    }),
+  }, CompletedTaskBoard)))
+}
+module.exports = { inject, apply, createRemovalAction, CompletedTaskBoard }
